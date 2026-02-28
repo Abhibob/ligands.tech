@@ -3,6 +3,8 @@
 This is an optional module. If RDKit is not installed, 3D generation will fall back to PubChem.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 # Try to import RDKit (optional dependency)

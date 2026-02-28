@@ -1,5 +1,7 @@
 """PubChem PUG-REST API client for ligand search and retrieval."""
 
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
 
@@ -43,11 +45,18 @@ async def get_cid_by_name(name: str) -> int | None:
 
 async def get_cid_by_smiles(smiles: str) -> int | None:
     """Get PubChem CID from SMILES string."""
-    url = f"{PUBCHEM_BASE}/compound/smiles/{smiles}/cids/JSON"
+    # Use POST to avoid URL encoding issues with special characters
+    url = f"{PUBCHEM_BASE}/compound/smiles/cids/JSON"
 
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=30)
+            # POST the SMILES as form data to avoid URL encoding issues
+            resp = await client.post(
+                url,
+                data={"smiles": smiles},
+                timeout=30,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
             resp.raise_for_status()
             data = resp.json()
 
@@ -55,7 +64,8 @@ async def get_cid_by_smiles(smiles: str) -> int | None:
         return cids[0] if cids else None
 
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
+        if e.response.status_code in (404, 400):
+            # 400 can mean invalid SMILES
             return None
         raise
 
@@ -102,8 +112,9 @@ async def fetch_compound_by_cid(cid: int) -> dict:
 
     return {
         "cid": cid,
-        "canonical_smiles": prop.get("CanonicalSMILES"),
-        "isomeric_smiles": prop.get("IsomericSMILES"),
+        # PubChem returns "SMILES" not "CanonicalSMILES" in response
+        "canonical_smiles": prop.get("SMILES") or prop.get("CanonicalSMILES"),
+        "isomeric_smiles": prop.get("ConnectivitySMILES") or prop.get("IsomericSMILES"),
         "molecular_formula": prop.get("MolecularFormula"),
         "molecular_weight": prop.get("MolecularWeight"),
         "inchi": prop.get("InChI"),
