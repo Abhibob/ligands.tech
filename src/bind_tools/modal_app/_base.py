@@ -20,3 +20,4 @@ BOLTZ_WEIGHTS_MOUNT = "/root/.boltz"
 # Default timeouts (seconds).
 BOLTZ_TIMEOUT = 1800  # 30 min – diffusion model can be slow
 GNINA_TIMEOUT = 600   # 10 min – docking is usually fast
+SEARCH_TIMEOUT = 120  # 2 min

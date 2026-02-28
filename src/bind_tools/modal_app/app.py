@@ -21,4 +21,5 @@ from bind_tools.modal_app._base import (  # noqa: F401
 # Import remote classes so Modal registers them with the app on deploy.
 from bind_tools.modal_app.boltz_remote import BoltzPredictor  # noqa: F401
 from bind_tools.modal_app.gnina_remote import GninaRunner  # noqa: F401
+from bind_tools.modal_app.search_reranker import SearchReranker  # noqa: F401
 from bind_tools.modal_app.web_api import WebAPI  # noqa: F401

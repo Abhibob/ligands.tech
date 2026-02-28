@@ -100,6 +100,33 @@ class GninaResponse(BaseModel):
     output_file: GninaFileOut | None = None
 
 
+class SearchRerankRequest(BaseModel):
+    """Request body for POST /v1/search/rerank."""
+
+    query: str = Field(..., description="Search query string")
+    num_results: int = Field(10, ge=1, le=20, description="Number of results to return (1-20)")
+    provider: str = Field("brave", description="Search provider name")
+
+
+class SearchResultItem(BaseModel):
+    """A single reranked search result."""
+
+    title: str
+    url: str
+    snippet: str
+    score: float = Field(..., ge=0.0, le=1.0, description="Relevance score (0-1)")
+
+
+class SearchRerankResponse(BaseModel):
+    """Response body for POST /v1/search/rerank."""
+
+    query: str
+    provider: str
+    results: list[SearchResultItem]
+    num_raw: int
+    num_reranked: int
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -238,6 +265,29 @@ def create_app() -> FastAPI:
     )
     async def gnina_minimize(req: GninaRequest):
         return await _gnina_handler("minimize", req)
+
+    # -- Search + Rerank ------------------------------------------------------
+
+    @api.post(
+        "/v1/search/rerank",
+        response_model=SearchRerankResponse,
+        dependencies=[Depends(verify_bearer_token)],
+    )
+    async def search_rerank(req: SearchRerankRequest):
+        from .search_reranker import SearchReranker
+
+        raw: dict = SearchReranker().search_and_rerank.remote(
+            query=req.query,
+            num_results=req.num_results,
+            provider=req.provider,
+        )
+        return SearchRerankResponse(
+            query=raw["query"],
+            provider=raw["provider"],
+            results=[SearchResultItem(**r) for r in raw["results"]],
+            num_raw=raw["num_raw"],
+            num_reranked=raw["num_reranked"],
+        )
 
     return api
 

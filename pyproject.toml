@@ -16,6 +16,7 @@ bind-protein = "bind_tools.protein.cli:main"
 bind-ligand = "bind_tools.ligand.cli:main"
 bind-protprep = "bind_tools.protprep.cli:main"
 bind-ligprep = "bind_tools.ligprep.cli:main"
+bind-search = "bind_tools.search.cli:main"
 
 [project.optional-dependencies]
 modal = [
