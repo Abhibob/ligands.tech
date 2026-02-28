@@ -17,7 +17,7 @@
 # Clone the repo
 cd cancercurer
 
-# Install with Python 3.9+
+# Install with Python 3.10+
 python3 -m pip install -e .
 
 # Install with dev dependencies (for testing)
