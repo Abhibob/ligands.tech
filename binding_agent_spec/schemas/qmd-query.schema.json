@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "binding.dev/schemas/QmdQueryRequest.schema.json",
+  "title": "QmdQueryRequest",
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "binding.dev/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "QmdQueryRequest"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "createdAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "collections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "keyword",
+            "semantic",
+            "hybrid"
+          ]
+        },
+        "topK": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "skill",
+            "spec",
+            "schema",
+            "example",
+            "note",
+            "any"
+          ]
+        },
+        "pathsOnly": {
+          "type": "boolean"
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "lineNumbers": {
+          "type": "boolean"
+        },
+        "rerank": {
+          "type": "boolean"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mustInclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mustExclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

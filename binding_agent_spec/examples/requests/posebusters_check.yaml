@@ -1,0 +1,14 @@
+apiVersion: binding.dev/v1
+kind: PoseBustersCheckRequest
+metadata:
+  requestId: req-pb-001
+  createdAt: 2026-02-27T12:00:00Z
+spec:
+  predictedPoses:
+    - runs/boltz/affinity_model_0.sdf
+  proteinPath: data/targets/egfr.pdb
+  config: dock
+  fullReport: true
+  performance:
+    topN: 1
+    maxWorkers: 4

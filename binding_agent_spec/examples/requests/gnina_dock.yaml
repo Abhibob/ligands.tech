@@ -1,0 +1,18 @@
+apiVersion: binding.dev/v1
+kind: GninaDockRequest
+metadata:
+  requestId: req-gnina-dock-001
+  createdAt: 2026-02-27T12:00:00Z
+spec:
+  receptorPath: data/targets/egfr.pdb
+  ligands:
+    - id: ligand_a
+      sdfPath: data/ligands/library.sdf
+  searchSpace:
+    autoboxLigandPath: data/ligands/reference_pose.sdf
+  execution:
+    cnnScoring: rescore
+    numModes: 9
+    exhaustiveness: 16
+    poseSortOrder: cnnaffinity
+  scoring: vinardo

@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "binding.dev/schemas/BoltzPredictResult.schema.json",
+  "title": "BoltzPredictResult",
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "tool",
+    "status",
+    "summary"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "binding.dev/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "BoltzPredictResult"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "createdAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "tool": {
+      "type": "string"
+    },
+    "toolVersion": {
+      "type": "string"
+    },
+    "wrapperVersion": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed",
+        "partial"
+      ]
+    },
+    "inputsResolved": {
+      "type": "object"
+    },
+    "parametersResolved": {
+      "type": "object"
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "primaryComplexPath": {
+          "type": "string"
+        },
+        "primaryConfidenceJsonPath": {
+          "type": "string"
+        },
+        "rankMetricUsed": {
+          "type": "string"
+        },
+        "affinity": {
+          "type": "object",
+          "properties": {
+            "binderProbability": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "affinityValue": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "affinityUnit": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "runtimeSeconds": {
+      "type": "number"
+    }
+  },
+  "additionalProperties": true
+}

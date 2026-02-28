@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "binding.dev/schemas/GninaScoreRequest.schema.json",
+  "title": "GninaScoreRequest",
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "binding.dev/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "GninaScoreRequest"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "createdAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "receptorPath": {
+          "type": "string"
+        },
+        "ligands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "smiles": {
+                "type": "string"
+              },
+              "sdfPath": {
+                "type": "string"
+              },
+              "mol2Path": {
+                "type": "string"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "searchSpace": {
+          "type": "object",
+          "properties": {
+            "autoboxLigandPath": {
+              "type": "string"
+            },
+            "center": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "z": {
+                  "type": "number"
+                }
+              }
+            },
+            "size": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "z": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "execution": {
+          "type": "object",
+          "properties": {
+            "cnnScoring": {
+              "type": "string",
+              "enum": [
+                "none",
+                "rescore",
+                "refinement",
+                "all"
+              ]
+            },
+            "numModes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "exhaustiveness": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "seed": {
+              "type": "integer"
+            },
+            "cpu": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "device": {
+              "type": "string"
+            },
+            "noGpu": {
+              "type": "boolean"
+            },
+            "poseSortOrder": {
+              "type": "string",
+              "enum": [
+                "cnnscore",
+                "cnnaffinity",
+                "energy"
+              ]
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "receptorPath",
+        "ligands"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "binding.dev/schemas/PlipProfileRequest.schema.json",
+  "title": "PlipProfileRequest",
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "binding.dev/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "PlipProfileRequest"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "createdAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "complexPath": {
+          "type": "string"
+        },
+        "pdbId": {
+          "type": "string"
+        },
+        "bindingSite": {
+          "type": "string"
+        },
+        "model": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "outputs": {
+          "type": "object",
+          "properties": {
+            "txt": {
+              "type": "boolean"
+            },
+            "xml": {
+              "type": "boolean"
+            },
+            "pymol": {
+              "type": "boolean"
+            },
+            "pics": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        },
+        "structureHandling": {
+          "type": "object",
+          "properties": {
+            "chains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "residues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "peptides": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "intra": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "noHydro": {
+              "type": "boolean"
+            },
+            "keepMod": {
+              "type": "boolean"
+            },
+            "noFix": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

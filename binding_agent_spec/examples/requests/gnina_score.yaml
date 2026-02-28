@@ -1,0 +1,16 @@
+apiVersion: binding.dev/v1
+kind: GninaScoreRequest
+metadata:
+  requestId: req-gnina-score-001
+  createdAt: 2026-02-27T12:00:00Z
+spec:
+  receptorPath: data/targets/egfr.pdb
+  ligands:
+    - id: ligand_a_pose
+      sdfPath: runs/boltz/affinity_model_0.sdf
+  searchSpace:
+    autoboxLigandPath: runs/boltz/affinity_model_0.sdf
+  execution:
+    cnnScoring: rescore
+    poseSortOrder: cnnaffinity
+    cpu: 8

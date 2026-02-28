@@ -1,0 +1,14 @@
+apiVersion: binding.dev/v1
+kind: PlipProfileRequest
+metadata:
+  requestId: req-plip-001
+  createdAt: 2026-02-27T12:00:00Z
+spec:
+  complexPath: runs/final/complex.pdb
+  outputs:
+    txt: true
+    xml: true
+    pymol: true
+    pics: false
+  structureHandling:
+    noHydro: true

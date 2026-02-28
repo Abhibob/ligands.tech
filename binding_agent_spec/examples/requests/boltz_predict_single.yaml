@@ -1,0 +1,23 @@
+apiVersion: binding.dev/v1
+kind: BoltzPredictRequest
+metadata:
+  requestId: req-boltz-001
+  createdAt: 2026-02-27T12:00:00Z
+spec:
+  target:
+    name: egfr_kinase
+    proteinFastaPath: data/targets/egfr.fasta
+  ligands:
+    - id: ligand_a
+      smiles: "CC1=NC=CC(=N1)N"
+  task: both
+  msa:
+    useServer: true
+  constraints:
+    pocketResidues:
+      - "A:745"
+      - "A:793"
+  execution:
+    rankBy: binder-probability
+    topK: 1
+    seed: 7

@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "binding.dev/schemas/BoltzPredictRequest.schema.json",
+  "title": "BoltzPredictRequest",
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "binding.dev/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "BoltzPredictRequest"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "createdAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "object",
+          "properties": {
+            "proteinFastaPath": {
+              "type": "string"
+            },
+            "proteinSequence": {
+              "type": "string"
+            },
+            "proteinPdbPath": {
+              "type": "string"
+            },
+            "proteinCifPath": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        "ligands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "smiles": {
+                "type": "string"
+              },
+              "sdfPath": {
+                "type": "string"
+              },
+              "mol2Path": {
+                "type": "string"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "task": {
+          "type": "string",
+          "enum": [
+            "structure",
+            "affinity",
+            "both"
+          ]
+        },
+        "msa": {
+          "type": "object",
+          "properties": {
+            "useServer": {
+              "type": "boolean"
+            },
+            "msaDir": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        "constraints": {
+          "type": "object",
+          "properties": {
+            "templatePaths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "pocketResidues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "contacts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "methodConditioning": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "execution": {
+          "type": "object",
+          "properties": {
+            "rankBy": {
+              "type": "string",
+              "enum": [
+                "binder-probability",
+                "affinity-value"
+              ]
+            },
+            "topK": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "seed": {
+              "type": "integer"
+            },
+            "recyclingSteps": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "diffusionSamples": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "device": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "target",
+        "ligands",
+        "task"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

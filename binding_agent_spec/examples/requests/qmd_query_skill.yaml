@@ -1,0 +1,13 @@
+apiVersion: binding.dev/v1
+kind: QmdQueryRequest
+metadata:
+  requestId: req-qmd-001
+  createdAt: 2026-02-27T12:00:00Z
+spec:
+  text: "Boltz skill and request schema"
+  collections:
+    - repo
+  strategy: hybrid
+  topK: 5
+  kind: any
+  rerank: true

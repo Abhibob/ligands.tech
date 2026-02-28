@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "binding.dev/schemas/PoseBustersCheckRequest.schema.json",
+  "title": "PoseBustersCheckRequest",
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "binding.dev/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "PoseBustersCheckRequest"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "createdAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "predictedPoses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "proteinPath": {
+          "type": "string"
+        },
+        "referenceLigandPath": {
+          "type": "string"
+        },
+        "config": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "mol",
+            "dock",
+            "redock"
+          ]
+        },
+        "fullReport": {
+          "type": "boolean"
+        },
+        "performance": {
+          "type": "object",
+          "properties": {
+            "topN": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxWorkers": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "chunkSize": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "predictedPoses"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

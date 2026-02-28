@@ -1,0 +1,18 @@
+version: 1
+collections:
+  - name: repo
+    root: .
+    include:
+      - "skills/**/*.md"
+      - "specs/**/*.md"
+      - "schemas/**/*.json"
+      - "examples/**/*.*"
+      - "AGENTS.md"
+      - "prompts/**/*.md"
+    exclude:
+      - ".git/**"
+      - "node_modules/**"
+      - "artifacts/**"
+    tags:
+      - binding-agent
+      - local-docs
