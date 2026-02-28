@@ -15,6 +15,7 @@ dependencies = [
 bind-protein = "bind_tools.protein.cli:main"
 bind-ligand = "bind_tools.ligand.cli:main"
 bind-protprep = "bind_tools.protprep.cli:main"
+bind-ligprep = "bind_tools.ligprep.cli:main"
 
 [project.optional-dependencies]
 modal = [
@@ -25,6 +26,10 @@ protprep = [
     "pdbfixer>=1.9",
     "openmm>=8.0",
     "pdb2pqr>=3.6.0",
+]
+ligprep = [
+    "rdkit>=2023.0",
+    "meeko>=0.5.0",
 ]
 dev = [
     "pytest>=8.0.0",
