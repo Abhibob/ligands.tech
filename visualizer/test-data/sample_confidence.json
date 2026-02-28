@@ -1,0 +1,10 @@
+{
+  "pTM": 0.82,
+  "ipTM": 0.71,
+  "pLDDT": {
+    "mean": 76.4,
+    "per_residue": [92.1, 88.3, 85.7, 79.2, 74.5, 68.3, 61.2, 55.8]
+  },
+  "binderProbability": 0.89,
+  "affinityValue": 8.4
+}
