@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:modal.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(wc:*)",
+      "Bash(python:*)"
     ]
   }
 }

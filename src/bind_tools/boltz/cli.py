@@ -22,7 +22,7 @@ from .models import (
     BoltzPredictSpec,
     BoltzTarget,
 )
-from .runner import check_installed, run_predict
+from .runner import check_installed, run_predict_dispatch
 
 app = typer.Typer(
     name="bind-boltz",
@@ -67,6 +67,7 @@ def predict(
     device: Optional[str] = typer.Option(None, "--device", help="Compute device (cuda:0, cpu)"),
     timeout_s: Optional[int] = typer.Option(None, "--timeout-s", help="Hard timeout in seconds"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate and print plan, do not execute"),
+    modal: bool = typer.Option(False, "--modal", help="Run on Modal cloud GPU instead of locally"),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
     quiet: bool = typer.Option(False, "--quiet", help="Minimal output"),
 ) -> None:
@@ -149,12 +150,13 @@ def predict(
             console.print(f"[dim]Device: {result.parameters_resolved['device']}[/dim]")
 
         # -- Execute --
-        summary = run_predict(
+        summary = run_predict_dispatch(
             spec,
             artifacts_dir=artifacts_dir,
             device=device,
             timeout_s=timeout_s,
             dry_run=dry_run,
+            use_modal=modal,
         )
 
         result.summary = summary

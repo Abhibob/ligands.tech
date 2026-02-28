@@ -26,7 +26,7 @@ from .models import (
     GninaScoreSpec,
     GninaSearchSpace,
 )
-from .runner import DOCKER_IMAGE, check_installed, run_gnina
+from .runner import DOCKER_IMAGE, check_installed, run_gnina_dispatch
 
 app = typer.Typer(name="bind-gnina", help="Molecular docking, scoring, and minimization via gnina.")
 
@@ -141,6 +141,7 @@ def dock(
     device: str = typer.Option(None, "--device", help="Compute device (cuda:0, cpu)"),
     timeout_s: int = typer.Option(None, "--timeout-s", help="Hard timeout in seconds"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate and print plan only"),
+    modal: bool = typer.Option(False, "--modal", help="Run on Modal cloud GPU instead of locally"),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
     quiet: bool = typer.Option(False, "--quiet", help="Minimal output"),
 ) -> None:
@@ -177,13 +178,14 @@ def dock(
             console.print(f"[dim]Receptor: {spec.receptor_path}[/dim]")
             console.print(f"[dim]Ligands: {len(spec.ligands)}[/dim]")
 
-        poses, run_result = run_gnina(
+        poses, run_result = run_gnina_dispatch(
             mode="dock",
             spec=spec,
             device=resolved_device,
             artifacts_dir=art_dir,
             timeout_s=timeout_s,
             dry_run=dry_run,
+            use_modal=modal,
         )
 
         if dry_run:
@@ -254,6 +256,7 @@ def score(
     device: str = typer.Option(None, "--device", help="Compute device (cuda:0, cpu)"),
     timeout_s: int = typer.Option(None, "--timeout-s", help="Hard timeout in seconds"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate and print plan only"),
+    modal: bool = typer.Option(False, "--modal", help="Run on Modal cloud GPU instead of locally"),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
     quiet: bool = typer.Option(False, "--quiet", help="Minimal output"),
 ) -> None:
@@ -288,13 +291,14 @@ def score(
             console.print(f"[dim]Receptor: {spec.receptor_path}[/dim]")
             console.print(f"[dim]Ligands: {len(spec.ligands)}[/dim]")
 
-        poses, run_result = run_gnina(
+        poses, run_result = run_gnina_dispatch(
             mode="score",
             spec=spec,
             device=resolved_device,
             artifacts_dir=art_dir,
             timeout_s=timeout_s,
             dry_run=dry_run,
+            use_modal=modal,
         )
 
         if dry_run:
@@ -365,6 +369,7 @@ def minimize(
     device: str = typer.Option(None, "--device", help="Compute device (cuda:0, cpu)"),
     timeout_s: int = typer.Option(None, "--timeout-s", help="Hard timeout in seconds"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate and print plan only"),
+    modal: bool = typer.Option(False, "--modal", help="Run on Modal cloud GPU instead of locally"),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
     quiet: bool = typer.Option(False, "--quiet", help="Minimal output"),
 ) -> None:
@@ -401,13 +406,14 @@ def minimize(
             console.print(f"[dim]Ligands: {len(spec.ligands)}[/dim]")
             console.print(f"[dim]Minimize iters: {spec.minimize_iters}[/dim]")
 
-        poses, run_result = run_gnina(
+        poses, run_result = run_gnina_dispatch(
             mode="minimize",
             spec=spec,
             device=resolved_device,
             artifacts_dir=art_dir,
             timeout_s=timeout_s,
             dry_run=dry_run,
+            use_modal=modal,
         )
 
         if dry_run:
