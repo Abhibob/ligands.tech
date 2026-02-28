@@ -113,6 +113,151 @@ On the **first run**, expect additional setup time:
 
 After the first run, Modal caches the container images. If a container has been idle for ~15 minutes it will shut down and the next request will incur a ~30-60 second cold start.
 
+## REST API
+
+In addition to the SDK-based (`--modal`) access, the deployed app exposes HTTP REST endpoints so any client with an API key can call Boltz and GNINA via simple HTTP requests.
+
+### Setup — Create the API Key Secret (one-time)
+
+```bash
+modal secret create bind-tools-api-key BIND_TOOLS_API_KEY=$(openssl rand -hex 32)
+```
+
+Then deploy (or redeploy) the app:
+```bash
+modal deploy src/bind_tools/modal_app/app.py
+```
+
+### Base URL
+
+```
+https://benwu408--bind-tools-gpu-webapi-serve.modal.run
+```
+
+### Endpoints
+
+| Method | Path                    | Description              |
+|--------|-------------------------|--------------------------|
+| GET    | `/v1/health`            | Health check (no auth)   |
+| POST   | `/v1/boltz/predict`     | Structure prediction     |
+| POST   | `/v1/gnina/dock`        | Molecular docking        |
+| POST   | `/v1/gnina/score`       | Pose scoring             |
+| POST   | `/v1/gnina/minimize`    | Pose minimization        |
+| GET    | `/docs`                 | Swagger UI               |
+
+All POST endpoints require `Authorization: Bearer <API_KEY>`.
+
+Files are sent as base64-encoded JSON objects: `{"name": "protein.pdb", "data": "<base64>"}`.
+
+### Examples
+
+#### Health Check
+
+```bash
+curl https://benwu408--bind-tools-gpu-webapi-serve.modal.run/v1/health
+```
+
+#### Boltz Structure Prediction (curl)
+
+```bash
+curl -X POST https://benwu408--bind-tools-gpu-webapi-serve.modal.run/v1/boltz/predict \
+  -H "Authorization: Bearer $BIND_TOOLS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "upstream_yaml": {
+      "sequences": [
+        {"protein": {"id": "A", "sequence": "MKWVTFISLLLLFSSAYSRGV..."}},
+        {"ligand": {"id": "B", "smiles": "CC(=O)Oc1ccccc1C(=O)O"}}
+      ]
+    },
+    "diffusion_samples": 1
+  }'
+```
+
+#### Boltz Structure Prediction (Python)
+
+```python
+import base64, requests
+
+API_KEY = "your-api-key"
+BASE = "https://benwu408--bind-tools-gpu-webapi-serve.modal.run"
+
+resp = requests.post(
+    f"{BASE}/v1/boltz/predict",
+    headers={"Authorization": f"Bearer {API_KEY}"},
+    json={
+        "upstream_yaml": {
+            "sequences": [
+                {"protein": {"id": "A", "sequence": "MKWVTFISLLLLFSSAYSRGV..."}},
+                {"ligand": {"id": "B", "smiles": "CC(=O)Oc1ccccc1C(=O)O"}},
+            ]
+        },
+        "diffusion_samples": 1,
+    },
+)
+result = resp.json()
+
+# Decode output structure file
+for f in result["output_files"]:
+    with open(f["name"], "wb") as fh:
+        fh.write(base64.b64decode(f["data"]))
+```
+
+#### GNINA Docking (curl)
+
+```bash
+RECEPTOR_B64=$(base64 < protein.pdb)
+LIGAND_B64=$(base64 < ligand.sdf)
+AUTOBOX_B64=$(base64 < reference.sdf)
+
+curl -X POST https://benwu408--bind-tools-gpu-webapi-serve.modal.run/v1/gnina/dock \
+  -H "Authorization: Bearer $BIND_TOOLS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"gnina_args\": [\"-r\", \"protein.pdb\", \"-l\", \"ligand.sdf\", \"--autobox_ligand\", \"reference.sdf\", \"-o\", \"output.sdf\"],
+    \"input_files\": [
+      {\"name\": \"protein.pdb\", \"data\": \"$RECEPTOR_B64\"},
+      {\"name\": \"ligand.sdf\", \"data\": \"$LIGAND_B64\"},
+      {\"name\": \"reference.sdf\", \"data\": \"$AUTOBOX_B64\"}
+    ],
+    \"output_filename\": \"output.sdf\"
+  }"
+```
+
+#### GNINA Docking (Python)
+
+```python
+import base64, requests
+
+API_KEY = "your-api-key"
+BASE = "https://benwu408--bind-tools-gpu-webapi-serve.modal.run"
+
+receptor_b64 = base64.b64encode(open("protein.pdb", "rb").read()).decode()
+ligand_b64 = base64.b64encode(open("ligand.sdf", "rb").read()).decode()
+autobox_b64 = base64.b64encode(open("reference.sdf", "rb").read()).decode()
+
+resp = requests.post(
+    f"{BASE}/v1/gnina/dock",
+    headers={"Authorization": f"Bearer {API_KEY}"},
+    json={
+        "gnina_args": ["-r", "protein.pdb", "-l", "ligand.sdf",
+                       "--autobox_ligand", "reference.sdf", "-o", "output.sdf"],
+        "input_files": [
+            {"name": "protein.pdb", "data": receptor_b64},
+            {"name": "ligand.sdf", "data": ligand_b64},
+            {"name": "reference.sdf", "data": autobox_b64},
+        ],
+        "output_filename": "output.sdf",
+    },
+)
+result = resp.json()
+
+# Save docked poses
+if result["output_file"]:
+    with open(result["output_file"]["name"], "wb") as fh:
+        fh.write(base64.b64decode(result["output_file"]["data"]))
+```
+
 ## Troubleshooting
 
 ### "modal: command not found" or ImportError
