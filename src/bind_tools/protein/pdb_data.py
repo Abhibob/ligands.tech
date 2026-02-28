@@ -1,5 +1,7 @@
 """RCSB PDB data fetching, binding site extraction, and structure ranking."""
 
+from __future__ import annotations
+
 from collections import defaultdict
 from pathlib import Path
 
@@ -43,26 +45,30 @@ async def fetch_structure_details(pdb_id: str) -> StructureHit:
     release_date = entry.get("rcsb_accession_info", {}).get("initial_release_date", "")
 
     # Fetch non-polymer entities (ligands)
+    # We need to query each entity ID separately (entity 1 is usually protein)
+    # Try entities 2-10 to find nonpolymer entities
     ligand_ids = []
     has_ligand = False
-    try:
-        async with httpx.AsyncClient() as client2:
-            resp2 = await client2.get(
-                f"{RCSB_DATA_BASE}/nonpolymer_entities/{pdb_id}",
-                timeout=15,
-            )
-            if resp2.status_code == 200:
-                nonpolymers = resp2.json()
-                # nonpolymers is typically a list or can be keyed
-                if isinstance(nonpolymers, list):
-                    for np in nonpolymers:
-                        comp_id = np.get("pdbx_entity_nonpoly", {}).get("comp_id", "")
-                        # Filter out common crystallization additives
-                        if comp_id and comp_id not in _COMMON_ADDITIVES:
-                            ligand_ids.append(comp_id)
-                            has_ligand = True
-    except Exception:
-        pass
+    async with httpx.AsyncClient() as client2:
+        for entity_id in range(2, 11):  # Try entity IDs 2-10
+            try:
+                resp2 = await client2.get(
+                    f"{RCSB_DATA_BASE}/nonpolymer_entity/{pdb_id}/{entity_id}",
+                    timeout=10,
+                )
+                if resp2.status_code == 200:
+                    nonpoly = resp2.json()
+                    comp_id = nonpoly.get("pdbx_entity_nonpoly", {}).get("comp_id", "")
+                    # Filter out common crystallization additives
+                    if comp_id and comp_id not in _COMMON_ADDITIVES:
+                        ligand_ids.append(comp_id)
+                        has_ligand = True
+                elif resp2.status_code == 404:
+                    # No more entities
+                    break
+            except Exception:
+                # Skip errors for individual entities
+                continue
 
     return StructureHit(
         pdb_id=pdb_id,

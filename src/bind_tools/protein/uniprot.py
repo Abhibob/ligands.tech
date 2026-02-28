@@ -1,5 +1,7 @@
 """UniProt REST API client for protein search and sequence retrieval."""
 
+from __future__ import annotations
+
 import re
 
 import httpx
