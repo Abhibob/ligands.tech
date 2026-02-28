@@ -1,4 +1,7 @@
-"""Shared Modal app definition, volume, and constants."""
+"""Modal deploy entry-point for bind-tools-gpu.
+
+Run:  modal deploy src/bind_tools/modal_app/app.py
+"""
 
 from __future__ import annotations
 
@@ -6,16 +9,15 @@ from bind_tools.modal_app import ensure_modal_auth
 
 ensure_modal_auth()
 
-import modal
+# Re-export the app and shared objects so existing imports still work.
+from bind_tools.modal_app._base import (  # noqa: F401
+    app,
+    boltz_weights_volume,
+    BOLTZ_WEIGHTS_MOUNT,
+    BOLTZ_TIMEOUT,
+    GNINA_TIMEOUT,
+)
 
-app = modal.App("bind-tools-gpu")
-
-# Persistent volume for caching Boltz2 model weights (~3.6 GB).
-boltz_weights_volume = modal.Volume.from_name("bind-tools-boltz-weights", create_if_missing=True)
-
-# Mount path inside the container where weights are cached.
-BOLTZ_WEIGHTS_MOUNT = "/root/.boltz"
-
-# Default timeouts (seconds).
-BOLTZ_TIMEOUT = 1800  # 30 min – diffusion model can be slow
-GNINA_TIMEOUT = 600   # 10 min – docking is usually fast
+# Import remote classes so Modal registers them with the app on deploy.
+from bind_tools.modal_app.boltz_remote import BoltzPredictor  # noqa: F401
+from bind_tools.modal_app.gnina_remote import GninaRunner  # noqa: F401

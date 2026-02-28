@@ -9,7 +9,7 @@ from typing import Any
 
 import modal
 
-from .app import app
+from ._base import app
 from .images import gnina_image
 
 

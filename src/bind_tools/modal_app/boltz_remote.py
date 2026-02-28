@@ -10,7 +10,7 @@ from typing import Any
 
 import modal
 
-from .app import BOLTZ_WEIGHTS_MOUNT, boltz_weights_volume, app
+from ._base import BOLTZ_WEIGHTS_MOUNT, boltz_weights_volume, app
 from .file_io import FilePayload
 from .images import boltz_image
 
