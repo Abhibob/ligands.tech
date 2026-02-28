@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -269,6 +270,144 @@ def _read_fasta_sequence(path: Path) -> str:
     if not seq:
         raise ValidationError(f"No sequence found in FASTA file: {path}")
     return seq
+
+
+# ── Modal dispatch ─────────────────────────────────────────────────────────
+
+
+def run_predict_modal(
+    spec: BoltzPredictSpec,
+    artifacts_dir: str | None = None,
+    timeout_s: int | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Execute boltz predict on a Modal cloud GPU and return a result summary dict."""
+    from bind_tools.modal_app.file_io import collect_input_files_boltz
+
+    # Translate to upstream YAML
+    upstream_yaml = translate_to_upstream_yaml(spec)
+
+    if dry_run:
+        return {
+            "dryRun": True,
+            "command": ["modal", "remote", "boltz", "predict"],
+            "upstreamYaml": upstream_yaml,
+            "backend": "modal",
+        }
+
+    # Collect input files as byte payloads
+    input_file_dicts = [
+        {"name": fp.name, "data": fp.data}
+        for fp in collect_input_files_boltz(upstream_yaml)
+    ]
+
+    # Call the Modal remote class
+    from bind_tools.modal_app.boltz_remote import BoltzPredictor
+
+    predictor = BoltzPredictor()
+    remote_result = predictor.predict.remote(
+        upstream_yaml=upstream_yaml,
+        input_files=input_file_dicts,
+        accelerator="gpu",
+        use_msa_server=spec.msa.use_server,
+        msa_dir=spec.msa.msa_dir,
+        recycling_steps=spec.execution.recycling_steps,
+        diffusion_samples=spec.execution.diffusion_samples,
+        seed=spec.execution.seed,
+    )
+
+    if remote_result["returncode"] != 0:
+        raise UpstreamError(
+            f"boltz predict (Modal) exited with code {remote_result['returncode']}.\n"
+            f"stderr: {remote_result['stderr'][:2000]}"
+        )
+
+    # Write output files locally
+    if artifacts_dir:
+        out_dir = ensure_dir(artifacts_dir, "artifacts directory", create=True)
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="boltz_modal_"))
+
+    from bind_tools.modal_app.file_io import FilePayload, write_file_payload
+
+    for fp_dict in remote_result.get("output_files", []):
+        payload = FilePayload(name=fp_dict["name"], data=fp_dict["data"])
+        write_file_payload(payload, out_dir)
+
+    # Build result summary matching the shape of run_predict()
+    result_summary: dict[str, Any] = {
+        "command": ["boltz", "predict", "(modal-remote)"],
+        "outputDir": str(out_dir),
+        "backend": "modal",
+    }
+
+    if remote_result.get("confidence"):
+        result_summary["confidence"] = _normalise_confidence(remote_result["confidence"])
+
+    if remote_result.get("affinity"):
+        result_summary["affinity"] = _normalise_affinity(remote_result["affinity"])
+
+    if remote_result.get("primary_complex_path"):
+        result_summary["primaryComplexPath"] = str(
+            out_dir / remote_result["primary_complex_path"]
+        )
+
+    if remote_result.get("structure_filenames"):
+        result_summary["structurePaths"] = [
+            str(out_dir / fn) for fn in remote_result["structure_filenames"]
+        ]
+
+    return result_summary
+
+
+def _normalise_confidence(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract key confidence metrics from raw Boltz JSON."""
+    result: dict[str, Any] = {}
+    for key in ("confidence", "ptm", "iptm", "complex_plddt", "complex_iplddt",
+                "pair_chains_iptm", "ranking_score"):
+        if key in data:
+            result[key] = data[key]
+    return result
+
+
+def _normalise_affinity(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract affinity metrics from raw Boltz JSON."""
+    result: dict[str, Any] = {}
+    binder_prob = data.get("binder_probability") or data.get("binderProbability")
+    affinity_val = data.get("affinity_value") or data.get("affinityValue") or data.get("affinity")
+    if binder_prob is not None:
+        result["binderProbability"] = float(binder_prob)
+    if affinity_val is not None:
+        result["affinityValue"] = float(affinity_val)
+    return result
+
+
+def run_predict_dispatch(
+    spec: BoltzPredictSpec,
+    artifacts_dir: str | None = None,
+    device: str | None = None,
+    timeout_s: int | None = None,
+    dry_run: bool = False,
+    use_modal: bool = False,
+) -> dict[str, Any]:
+    """Route to local or Modal execution based on the use_modal flag or env var."""
+    if use_modal or os.environ.get("BIND_TOOLS_USE_MODAL", "").strip() == "1":
+        return run_predict_modal(
+            spec,
+            artifacts_dir=artifacts_dir,
+            timeout_s=timeout_s,
+            dry_run=dry_run,
+        )
+    return run_predict(
+        spec,
+        artifacts_dir=artifacts_dir,
+        device=device,
+        timeout_s=timeout_s,
+        dry_run=dry_run,
+    )
+
+
+# ── Output parsers ──────────────────────────────────────────────────────────
 
 
 def _find_predictions_dir(out_dir: Path) -> Path | None:

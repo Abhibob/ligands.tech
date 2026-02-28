@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from bind_tools.common.cli_base import console
@@ -42,7 +44,8 @@ def _search_space_flags(ss: GninaSearchSpace, volumes: dict[str, str] | None = N
         if volumes:
             container = _container_path(ss.autobox_ligand_path, volumes)
         else:
-            container = f"/data/{Path(ss.autobox_ligand_path).name}"
+            # No volumes: use bare filename (Modal container resolves it)
+            container = Path(ss.autobox_ligand_path).name
         flags.extend(["--autobox_ligand", container])
     else:
         if ss.center_x is not None:
@@ -438,6 +441,173 @@ def _parse_score_stdout(stdout: str, mode: str) -> list[GninaPose]:
             )
 
     return poses
+
+
+# ── Modal dispatch ───────────────────────────────────────────────────────────
+
+
+def _build_modal_gnina_args(
+    mode: str,
+    spec: GninaDockSpec | GninaScoreSpec | GninaMinimizeSpec,
+    output_filename: str,
+) -> list[str]:
+    """Build gnina CLI args using bare filenames (no Docker container paths).
+
+    These args will be resolved to full paths inside the Modal container.
+    """
+    cmd: list[str] = []
+
+    # Receptor (by filename)
+    receptor_name = Path(spec.receptor_path).name
+    cmd.extend(["-r", receptor_name])
+
+    # Ligands
+    for lig in spec.ligands:
+        if lig.sdf_path:
+            cmd.extend(["-l", Path(lig.sdf_path).name])
+        elif lig.mol2_path:
+            cmd.extend(["-l", Path(lig.mol2_path).name])
+        elif lig.smiles:
+            cmd.extend(["--smiles", lig.smiles])
+
+    # Mode-specific flags
+    if mode == "dock":
+        dock_spec: GninaDockSpec = spec  # type: ignore[assignment]
+        if dock_spec.search_space:
+            cmd.extend(_search_space_flags(dock_spec.search_space, volumes=None))
+        cmd.extend(_execution_flags(dock_spec.execution))
+        if dock_spec.scoring != "vina":
+            cmd.extend(["--scoring", dock_spec.scoring])
+        if dock_spec.execution.pose_sort_order != "cnnscore":
+            cmd.extend(["--pose_sort_order", dock_spec.execution.pose_sort_order])
+        cmd.extend(["-o", output_filename])
+
+    elif mode == "score":
+        cmd.append("--score_only")
+        cmd.extend(_execution_flags(spec.execution))
+        if spec.search_space:
+            cmd.extend(_search_space_flags(spec.search_space, volumes=None))
+
+    elif mode == "minimize":
+        min_spec: GninaMinimizeSpec = spec  # type: ignore[assignment]
+        cmd.append("--minimize")
+        cmd.extend(_execution_flags(min_spec.execution))
+        if min_spec.search_space:
+            cmd.extend(_search_space_flags(min_spec.search_space, volumes=None))
+        if min_spec.minimize_iters > 0:
+            cmd.extend(["--minimize_iters", str(min_spec.minimize_iters)])
+        cmd.extend(["-o", output_filename])
+
+    return cmd
+
+
+def _run_gnina_modal(
+    mode: str,
+    spec: GninaDockSpec | GninaScoreSpec | GninaMinimizeSpec,
+    artifacts_dir: Path,
+    timeout_s: int | None = None,
+    dry_run: bool = False,
+) -> tuple[list[GninaPose], RunResult | None]:
+    """Run gnina on a Modal cloud GPU."""
+    from bind_tools.modal_app.file_io import collect_input_files_gnina, FilePayload, write_file_payload
+
+    # Validate input files exist locally
+    ensure_file(spec.receptor_path, "receptor")
+    for lig in spec.ligands:
+        if lig.sdf_path:
+            ensure_file(lig.sdf_path, f"ligand SDF ({lig.id or lig.sdf_path})")
+        if lig.mol2_path:
+            ensure_file(lig.mol2_path, f"ligand MOL2 ({lig.id or lig.mol2_path})")
+    if spec.search_space and spec.search_space.autobox_ligand_path:
+        ensure_file(spec.search_space.autobox_ligand_path, "autobox ligand")
+
+    output_filename = f"gnina_{mode}_output.sdf"
+    gnina_args = _build_modal_gnina_args(mode, spec, output_filename)
+
+    if dry_run:
+        console.print(f"[yellow]Dry run (Modal): would execute gnina {mode}[/yellow]")
+        console.print(f"[yellow]  Args: gnina {' '.join(gnina_args)}[/yellow]")
+        return [], None
+
+    # Collect input files
+    ligand_paths = []
+    for lig in spec.ligands:
+        if lig.sdf_path:
+            ligand_paths.append(lig.sdf_path)
+        elif lig.mol2_path:
+            ligand_paths.append(lig.mol2_path)
+
+    autobox_path = spec.search_space.autobox_ligand_path if spec.search_space else None
+    file_payloads = collect_input_files_gnina(spec.receptor_path, ligand_paths, autobox_path)
+    input_file_dicts = [{"name": fp.name, "data": fp.data} for fp in file_payloads]
+
+    # Call Modal remote
+    from bind_tools.modal_app.gnina_remote import GninaRunner
+
+    runner = GninaRunner()
+    remote_result = runner.run.remote(
+        mode=mode,
+        gnina_args=gnina_args,
+        input_files=input_file_dicts,
+        output_filename=output_filename if mode != "score" else None,
+    )
+
+    if remote_result["returncode"] != 0:
+        raise UpstreamError(
+            f"gnina (Modal) exited with code {remote_result['returncode']}.\n"
+            f"stderr: {remote_result['stderr'][:2000]}"
+        )
+
+    # Write output SDF locally
+    output_dir = ensure_dir(artifacts_dir, "artifacts directory", create=True)
+
+    run_result_obj = RunResult(
+        returncode=remote_result["returncode"],
+        stdout=remote_result["stdout"],
+        stderr=remote_result["stderr"],
+        elapsed_seconds=0.0,
+        command=["gnina", "(modal-remote)"] + gnina_args,
+    )
+
+    if mode == "score":
+        poses = _parse_score_stdout(remote_result["stdout"], mode)
+    else:
+        output_file = remote_result.get("output_file")
+        if not output_file:
+            raise UpstreamError("gnina (Modal) did not produce expected output SDF")
+        sdf_path = output_dir / output_filename
+        sdf_path.write_bytes(output_file["data"])
+        poses = parse_sdf_output(sdf_path)
+
+    return poses, run_result_obj
+
+
+def run_gnina_dispatch(
+    mode: str,
+    spec: GninaDockSpec | GninaScoreSpec | GninaMinimizeSpec,
+    device: str,
+    artifacts_dir: Path,
+    timeout_s: int | None = None,
+    dry_run: bool = False,
+    use_modal: bool = False,
+) -> tuple[list[GninaPose], RunResult | None]:
+    """Route to local Docker or Modal execution."""
+    if use_modal or os.environ.get("BIND_TOOLS_USE_MODAL", "").strip() == "1":
+        return _run_gnina_modal(
+            mode=mode,
+            spec=spec,
+            artifacts_dir=artifacts_dir,
+            timeout_s=timeout_s,
+            dry_run=dry_run,
+        )
+    return run_gnina(
+        mode=mode,
+        spec=spec,
+        device=device,
+        artifacts_dir=artifacts_dir,
+        timeout_s=timeout_s,
+        dry_run=dry_run,
+    )
 
 
 # ── Environment check ────────────────────────────────────────────────────────
