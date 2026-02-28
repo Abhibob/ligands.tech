@@ -14,11 +14,17 @@ dependencies = [
 [project.scripts]
 bind-protein = "bind_tools.protein.cli:main"
 bind-ligand = "bind_tools.ligand.cli:main"
+bind-protprep = "bind_tools.protprep.cli:main"
 
 [project.optional-dependencies]
 modal = [
     "modal>=0.73.0",
     "python-dotenv>=1.0.0",
+]
+protprep = [
+    "pdbfixer>=1.9",
+    "openmm>=8.0",
+    "pdb2pqr>=3.6.0",
 ]
 dev = [
     "pytest>=8.0.0",

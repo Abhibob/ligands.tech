@@ -5,7 +5,8 @@
       "WebFetch(domain:modal.com)",
       "WebFetch(domain:github.com)",
       "Bash(wc:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(grep:*)"
     ]
   }
 }
