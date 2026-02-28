@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #0a0e17;
+  --color-bg-secondary: #111827;
+  --color-bg-card: #1a2235;
+  --color-bg-card-hover: #1f2a40;
+  --color-border-subtle: #1e2d45;
+  --color-cyan-glow: #06d6a0;
+  --color-cyan-dim: #06d6a033;
+  --color-accent-blue: #3b82f6;
+  --color-accent-purple: #8b5cf6;
+  --color-score-high: #06d6a0;
+  --color-score-mid: #fbbf24;
+  --color-score-low: #ef4444;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg-primary);
+  color: #e2e8f0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--color-border-subtle); border-radius: 3px; }
+
+.glow-cyan { box-shadow: 0 0 20px var(--color-cyan-dim), 0 0 60px #06d6a015; }
+.glow-text { text-shadow: 0 0 10px var(--color-cyan-dim); }
+
+/* Asymmetric dual-grid background with radial fade */
+.grid-bg {
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(6, 214, 160, 0.04) 0%, transparent 70%),
+    linear-gradient(rgba(139, 92, 246, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139, 92, 246, 0.025) 1px, transparent 1px),
+    linear-gradient(rgba(6, 214, 160, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(6, 214, 160, 0.015) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    64px 64px,
+    64px 64px,
+    16px 16px,
+    16px 16px;
+  background-position:
+    0 0,
+    -8px -8px,
+    -8px -8px,
+    0 0,
+    0 0;
+}
+
+/* Gradient top border accent via pseudo-element */
+.accent-top {
+  position: relative;
+  border-top: none;
+}
+.accent-top::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-accent-purple), var(--color-cyan-glow), var(--color-accent-blue));
+  border-radius: 2px 2px 0 0;
+}
+
+/* Inset shadow card treatment — no border */
+.card-inset {
+  border: none !important;
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+/* Shimmer sweep animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(6, 214, 160, 0.15) 50%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out;
+}
+
+/* Nav gradient line */
+.nav-gradient-line {
+  position: relative;
+}
+.nav-gradient-line::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 5%, var(--color-accent-purple) 30%, var(--color-cyan-glow) 50%, var(--color-accent-blue) 70%, transparent 95%);
+}
+
+/* Left accent bar for cards */
+.accent-left {
+  position: relative;
+}
+.accent-left::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, var(--color-accent-purple), var(--color-cyan-glow));
+}
+
+/* Gradient text utility */
+.text-gradient {
+  background: linear-gradient(135deg, var(--color-cyan-glow), var(--color-accent-blue));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Mini molecular viz — binding line dash animation */
+@keyframes mini-viz-dash {
+  to { stroke-dashoffset: -12; }
+}
+.mini-viz-binding {
+  animation: mini-viz-dash 1.2s linear infinite;
+  will-change: stroke-dashoffset;
+}
+
+/* Mini molecular viz — subtle node pulse */
+@keyframes mini-viz-pulse {
+  0%, 100% { r: attr(r); opacity: 0.7; }
+  50% { opacity: 1; }
+}
+.mini-viz-node-glow {
+  animation: mini-viz-pulse 2.5s ease-in-out infinite;
+}
