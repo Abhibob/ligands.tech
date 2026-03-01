@@ -19,6 +19,21 @@ def _default_agent_id() -> str:
     return f"agent-{secrets.token_hex(6)}"
 
 
+def _default_spec_root() -> str:
+    """Derive the project root from the package location.
+
+    Walk up from src/bind_tools/agent/config.py to find the directory
+    containing pyproject.toml. Falls back to cwd.
+    """
+    from pathlib import Path
+
+    anchor = Path(__file__).resolve().parent  # agent/
+    for parent in (anchor, *anchor.parents):
+        if (parent / "pyproject.toml").is_file():
+            return str(parent)
+    return "."
+
+
 class AgentConfig(BaseModel):
     """Runtime configuration for the agent harness."""
 
@@ -32,7 +47,7 @@ class AgentConfig(BaseModel):
     db_url: str | None = None
     max_turns: int = 500
     command_timeout_s: int = 600
-    spec_root: str = "."
+    spec_root: str = Field(default_factory=_default_spec_root)
     stream: bool = True
     verbose: bool = False
 
@@ -75,6 +90,11 @@ class AgentConfig(BaseModel):
         parent_agent_id = os.environ.get("BIND_PARENT_AGENT_ID")
         if parent_agent_id:
             env_vals["parent_agent_id"] = parent_agent_id
+
+        # Spec root (project root for skill files and venv)
+        spec_root = os.environ.get("BIND_SPEC_ROOT")
+        if spec_root:
+            env_vals["spec_root"] = spec_root
 
         # Database
         db_url = os.environ.get("BIND_DB_URL") or os.environ.get("DATABASE_URL")

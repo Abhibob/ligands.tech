@@ -214,6 +214,14 @@ def dock(
 
         result = _build_result("dock", poses, spec.execution.pose_sort_order, time.monotonic() - start)
         result.artifacts = {"outputSdf": str(art_dir / "gnina_dock_output.sdf")}
+        # Store inputs so the hypothesis tracker can attribute scores to ligands.
+        ligand_paths = [l.sdf_path or l.mol2_path or l.smiles or "" for l in spec.ligands]
+        result.inputs_resolved = {
+            "receptorPath": spec.receptor_path,
+            "ligandCount": len(spec.ligands),
+            "ligand": ligand_paths[0] if len(ligand_paths) == 1 else None,
+            "ligandPaths": ligand_paths,
+        }
 
         if run_result:
             result.provenance = {"dockerImage": DOCKER_IMAGE, "command": " ".join(run_result.command)}
@@ -358,6 +366,13 @@ def score(
             raise typer.Exit(0)
 
         result = _build_result("score", poses, spec.execution.pose_sort_order, time.monotonic() - start)
+        ligand_paths = [l.sdf_path or l.mol2_path or l.smiles or "" for l in spec.ligands]
+        result.inputs_resolved = {
+            "receptorPath": spec.receptor_path,
+            "ligandCount": len(spec.ligands),
+            "ligand": ligand_paths[0] if len(ligand_paths) == 1 else None,
+            "ligandPaths": ligand_paths,
+        }
 
         if run_result:
             result.provenance = {"dockerImage": DOCKER_IMAGE, "command": " ".join(run_result.command)}
@@ -474,6 +489,13 @@ def minimize(
 
         result = _build_result("minimize", poses, spec.execution.pose_sort_order, time.monotonic() - start)
         result.artifacts = {"outputSdf": str(art_dir / "gnina_minimize_output.sdf")}
+        ligand_paths = [l.sdf_path or l.mol2_path or l.smiles or "" for l in spec.ligands]
+        result.inputs_resolved = {
+            "receptorPath": spec.receptor_path,
+            "ligandCount": len(spec.ligands),
+            "ligand": ligand_paths[0] if len(ligand_paths) == 1 else None,
+            "ligandPaths": ligand_paths,
+        }
 
         if run_result:
             result.provenance = {"dockerImage": DOCKER_IMAGE, "command": " ".join(run_result.command)}

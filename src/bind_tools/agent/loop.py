@@ -400,47 +400,63 @@ class _HypothesisTracker:
             # Pipeline tools → create pipeline_steps on existing hypotheses.
             step_name = _KIND_TO_STEP.get(subcommand)
             if step_name and step_name not in ("resolve_protein", "resolve_ligand") and self.compounds:
-                step_status = "done" if status == "succeeded" else ("failed" if status == "partial" else status)
-                confidence = _confidence_from_summary(step_name, summary)
-
                 # Try to match to a specific ligand from the inputs/summary.
-                # If we can't, attach to all hypotheses (batch mode).
+                # If we can't match, skip — don't broadcast aggregate scores
+                # to all hypotheses (which produces identical scores everywhere).
                 specific_ligand = self._match_ligand_from_invocation(summary, inputs)
-
-                targets = [specific_ligand] if specific_ligand else [c["name"] for c in self.compounds]
-                for ligand_name in targets:
-                    hypothesis_id = f"{self.run_id}:{ligand_name}"
+                if specific_ligand:
+                    step_status = "done" if status == "succeeded" else ("failed" if status == "partial" else status)
+                    confidence = _confidence_from_summary(step_name, summary)
+                    hypothesis_id = f"{self.run_id}:{specific_ligand}"
                     dedup_key = f"{hypothesis_id}:{step_name}:{status}:{runtime_seconds}"
-                    if dedup_key in self._recorded_steps:
-                        continue
-                    self._recorded_steps.add(dedup_key)
-                    DbRecorder.record_pipeline_step(
-                        hypothesis_id=hypothesis_id,
-                        agent_id=self.agent_id,
-                        step_name=step_name,
-                        status=step_status,
-                        confidence=confidence,
-                        runtime_seconds=runtime_seconds,
-                    )
+                    if dedup_key not in self._recorded_steps:
+                        self._recorded_steps.add(dedup_key)
+                        DbRecorder.record_pipeline_step(
+                            hypothesis_id=hypothesis_id,
+                            agent_id=self.agent_id,
+                            step_name=step_name,
+                            status=step_status,
+                            confidence=confidence,
+                            runtime_seconds=runtime_seconds,
+                        )
 
         except Exception:
             pass  # Never block the agent loop
 
     def _match_ligand_from_invocation(self, summary: dict, inputs: dict) -> str | None:
         """Try to match a tool invocation to a specific ligand hypothesis."""
-        # Check if summary mentions a specific ligand name.
+        from pathlib import Path as _Path
+
+        # 1. Check if summary mentions a specific ligand name directly.
         for field in ("ligandName", "ligand_name", "name"):
             val = summary.get(field)
             if isinstance(val, str) and val in self._compound_names:
                 return val
-        # Check if a single ligand path in inputs matches a known compound.
+
+        # 2. Check single ligand path from inputs (e.g. gnina --ligand <path>).
         ligand_path = inputs.get("ligand") or inputs.get("ligandSdf") or ""
         if isinstance(ligand_path, str) and ligand_path:
-            from pathlib import Path
-            stem = Path(ligand_path).stem.upper()
+            stem = _Path(ligand_path).stem.upper()
             for c in self.compounds:
                 if c["name"].upper() == stem or c["id"].upper() == stem:
                     return c["name"]
+
+        # 3. If inputs has exactly 1 ligandPath, match from that.
+        ligand_paths = inputs.get("ligandPaths") or []
+        if isinstance(ligand_paths, list) and len(ligand_paths) == 1:
+            stem = _Path(ligand_paths[0]).stem.upper()
+            for c in self.compounds:
+                if c["name"].upper() == stem or c["id"].upper() == stem:
+                    return c["name"]
+
+        # 4. If predictedPoses has exactly 1 path, try to match its stem.
+        pred_poses = inputs.get("predictedPoses") or []
+        if isinstance(pred_poses, list) and len(pred_poses) == 1:
+            stem = _Path(pred_poses[0]).stem.upper()
+            for c in self.compounds:
+                if c["name"].upper() == stem or c["id"].upper() == stem:
+                    return c["name"]
+
         return None
 
     def finalize(self) -> None:
