@@ -180,7 +180,7 @@ See `.env.example` for the full template.
 │   ├── websearch/      # Web search wrapper
 │   ├── qmd/            # Local file search
 │   └── modal_app/      # Modal GPU deployment
-├── frontend_SAMPLE/    # React SPA
+├── frontend/    # React SPA
 ├── binding_agent_spec/ # Agent prompts, skills, schemas
 ├── deploy.sh           # One-command platform launcher
 ├── run.sh              # One-command agent runner

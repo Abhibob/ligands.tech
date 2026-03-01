@@ -445,7 +445,7 @@ All use Pydantic v2 with camelCase aliases: `AgentRunResponse`, `HypothesisRespo
 
 ## 9. Frontend
 
-Located in `frontend_SAMPLE/`. Project name: `ligands-tech`.
+Located in `frontend/`. Project name: `ligands-tech`.
 
 ### Core Stack
 
@@ -553,7 +553,7 @@ Weights adjust dynamically when data is missing.
 ### Frontend Directory Structure
 
 ```
-frontend_SAMPLE/
+frontend/
 ├── index.html                    # Entry HTML, Google Fonts
 ├── package.json                  # Dependencies
 ├── vite.config.ts                # Vite + React + Tailwind + API proxy
@@ -859,7 +859,7 @@ Step 6: bind-plip profile
 1. Start PostgreSQL via `docker-compose up -d`
 2. Install dependencies: `uv pip install -e ".[api,db]"`
 3. Start API server: `uvicorn bind_tools.api.app:create_app --factory --port 8000`
-4. Start frontend: `cd frontend_SAMPLE && npm run dev` (port 5173)
+4. Start frontend: `cd frontend && npm run dev` (port 5173)
 
 ### Docker Compose (`docker-compose.yml`)
 

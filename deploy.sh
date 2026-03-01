@@ -19,7 +19,7 @@ uvicorn bind_tools.api.app:create_app --factory --host 0.0.0.0 --port 8000 &
 API_PID=$!
 
 echo "[4/4] Starting frontend (port 5173)..."
-(cd frontend_SAMPLE && npm install --silent 2>/dev/null && npm run dev) &
+(cd frontend && npm install --silent 2>/dev/null && npm run dev) &
 FE_PID=$!
 
 echo ""
