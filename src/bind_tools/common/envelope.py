@@ -21,6 +21,8 @@ class Metadata(BaseModel):
     request_id: str = Field(default_factory=_new_request_id, alias="requestId")
     created_at: datetime = Field(default_factory=_now_utc, alias="createdAt")
     labels: dict[str, str] = Field(default_factory=dict)
+    agent_id: str | None = Field(None, alias="agentId")
+    run_id: str | None = Field(None, alias="runId")
 
     model_config = {"populate_by_name": True}
 

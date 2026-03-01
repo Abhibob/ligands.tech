@@ -1,0 +1,10 @@
+apiVersion: binding.dev/v1
+kind: BoltzPredictRequest
+metadata:
+  name: erlotinib-egfr
+spec:
+  proteinFastaPath: proteins/proteins/P00533.fasta
+  ligandSdfPath: ligands/ligands/pubchem_176870_3d.sdf
+  task: both
+  useMsaServer: true
+  rankBy: binder-probability

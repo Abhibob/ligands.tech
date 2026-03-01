@@ -1,0 +1,7 @@
+apiVersion: binding.dev/v1
+kind: PoseBustersRequest
+metadata:
+  name: erlotinib-ligand-check
+spec:
+  mode: mol
+  ligand_sdf: ligands/ligands/pubchem_176870_3d.sdf

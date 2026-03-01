@@ -1,0 +1,55 @@
+{
+  "apiVersion": "binding.dev/v1",
+  "kind": "ResolveLigandResult",
+  "metadata": {
+    "requestId": "req-1e65bd5f68b1",
+    "createdAt": "2026-02-28T22:08:10.426190Z",
+    "labels": {}
+  },
+  "tool": "resolve",
+  "toolVersion": "",
+  "wrapperVersion": "0.1.0",
+  "status": "succeeded",
+  "inputsResolved": {
+    "name": "erlotinib",
+    "smiles": null,
+    "ccd": null,
+    "pubchem_cid": null,
+    "download_dir": "ligands/"
+  },
+  "parametersResolved": {},
+  "summary": {
+    "source": "pubchem_name",
+    "identifier": "erlotinib",
+    "name": "Erlotinib",
+    "smiles": "COCCOC1=C(C=C2C(=C1)C(=NC=N2)NC3=CC=CC(=C3)C#C)OCCOC",
+    "iupac_name": "N-(3-ethynylphenyl)-6,7-bis(2-methoxyethoxy)quinazolin-4-amine",
+    "synonyms": [
+      "Erlotinib",
+      "183321-74-6",
+      "N-(3-Ethynylphenyl)-6,7-bis(2-methoxyethoxy)quinazolin-4-amine",
+      "4-Quinazolinamine, N-(3-ethynylphenyl)-6,7-bis(2-methoxyethoxy)-",
+      "erlotinibum",
+      "J4T82NDH7E",
+      "DTXSID8046454",
+      "R-1415",
+      "RG-1415",
+      "DTXCID6026454"
+    ],
+    "pubchem_cid": 176870,
+    "inchi_key": "AAKJLRGGTJKAMG-UHFFFAOYSA-N",
+    "molecular_formula": "C22H23N3O4",
+    "molecular_weight": 393.4,
+    "logp": 3.3,
+    "tpsa": 74.7,
+    "h_bond_donors": 1,
+    "h_bond_acceptors": 7,
+    "rotatable_bonds": 11,
+    "sdf_path": "ligands/ligands/pubchem_176870_3d.sdf"
+  },
+  "artifacts": {},
+  "warnings": [],
+  "errors": [],
+  "provenance": {},
+  "runtimeSeconds": 1.262
+}

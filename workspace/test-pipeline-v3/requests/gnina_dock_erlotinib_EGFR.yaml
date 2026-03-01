@@ -1,0 +1,11 @@
+apiVersion: binding.dev/v1
+kind: GninaDockRequest
+metadata:
+  name: erlotinib-egfr-gnina-dock
+spec:
+  receptorPath: proteins/proteins/structures/1xkk.cif
+  ligandSdfPath: ligands/ligands/pubchem_176870_3d.sdf
+  autoboxLigandPath: ligands/ligands/pubchem_176870_3d.sdf
+  numModes: 5
+  cnnScoring: rescore
+  artifactsDir: docking/

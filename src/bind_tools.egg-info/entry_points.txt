@@ -1,0 +1,10 @@
+[console_scripts]
+bind-agent = bind_tools.agent.cli:main
+bind-boltz = bind_tools.boltz.cli:app
+bind-gnina = bind_tools.gnina.cli:app
+bind-ligand = bind_tools.ligand.cli:main
+bind-plip = bind_tools.plip.cli:app
+bind-posebusters = bind_tools.posebusters.cli:app
+bind-protein = bind_tools.protein.cli:main
+bind-qmd = bind_tools.qmd.cli:app
+bind-resolve = bind_tools.resolve.cli:app

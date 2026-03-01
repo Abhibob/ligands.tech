@@ -1,0 +1,36 @@
+{
+  "apiVersion": "binding.dev/v1",
+  "kind": "BoltzPredictResult",
+  "metadata": {
+    "requestId": "req-b44f6f1e4a7e",
+    "createdAt": "2026-02-28T22:11:16.442587Z",
+    "labels": {}
+  },
+  "tool": "boltz",
+  "toolVersion": "",
+  "wrapperVersion": "0.1.0",
+  "status": "failed",
+  "inputsResolved": {
+    "proteinFastaPath": "proteins/proteins/P00533.fasta",
+    "proteinSequence": null,
+    "ligandCount": 1,
+    "task": "both"
+  },
+  "parametersResolved": {
+    "device": "cpu",
+    "topK": 1,
+    "rankBy": "binder-probability",
+    "seed": null,
+    "recyclingSteps": null,
+    "diffusionSamples": null,
+    "useMsaServer": false
+  },
+  "summary": {},
+  "artifacts": {},
+  "warnings": [],
+  "errors": [
+    "Command not found: boltz"
+  ],
+  "provenance": {},
+  "runtimeSeconds": 0.006
+}

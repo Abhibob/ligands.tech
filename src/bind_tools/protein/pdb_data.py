@@ -42,27 +42,28 @@ async def fetch_structure_details(pdb_id: str) -> StructureHit:
     # Release date
     release_date = entry.get("rcsb_accession_info", {}).get("initial_release_date", "")
 
-    # Fetch non-polymer entities (ligands)
+    # Fetch non-polymer entities (ligands) via per-entity endpoint
     ligand_ids = []
     has_ligand = False
-    try:
-        async with httpx.AsyncClient() as client2:
-            resp2 = await client2.get(
-                f"{RCSB_DATA_BASE}/nonpolymer_entities/{pdb_id}",
-                timeout=15,
-            )
-            if resp2.status_code == 200:
-                nonpolymers = resp2.json()
-                # nonpolymers is typically a list or can be keyed
-                if isinstance(nonpolymers, list):
-                    for np in nonpolymers:
-                        comp_id = np.get("pdbx_entity_nonpoly", {}).get("comp_id", "")
-                        # Filter out common crystallization additives
+    np_entity_ids = entry.get("rcsb_entry_container_identifiers", {}).get(
+        "non_polymer_entity_ids", []
+    )
+    if np_entity_ids:
+        try:
+            async with httpx.AsyncClient() as client2:
+                for eid in np_entity_ids:
+                    resp2 = await client2.get(
+                        f"{RCSB_DATA_BASE}/nonpolymer_entity/{pdb_id}/{eid}",
+                        timeout=15,
+                    )
+                    if resp2.status_code == 200:
+                        np_data = resp2.json()
+                        comp_id = np_data.get("pdbx_entity_nonpoly", {}).get("comp_id", "")
                         if comp_id and comp_id not in _COMMON_ADDITIVES:
                             ligand_ids.append(comp_id)
                             has_ligand = True
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     return StructureHit(
         pdb_id=pdb_id,
@@ -75,55 +76,72 @@ async def fetch_structure_details(pdb_id: str) -> StructureHit:
     )
 
 
+RCSB_GRAPHQL = "https://data.rcsb.org/graphql"
+
+_BINDING_SITE_QUERY = """
+query ($pdb_id: String!) {
+  entry(entry_id: $pdb_id) {
+    rcsb_binding_affinity {
+      comp_id
+      value
+      type
+      unit
+    }
+    nonpolymer_entities {
+      pdbx_entity_nonpoly {
+        comp_id
+        name
+      }
+    }
+  }
+}
+"""
+
+
 async def fetch_binding_sites(pdb_id: str) -> list[BindingSite]:
-    """
-    Fetch binding site annotations from RCSB.
-    Uses the struct_site and struct_site_gen categories.
+    """Fetch binding site annotations from RCSB via the GraphQL API.
+
+    Generates a BindingSite record for each unique non-additive ligand found
+    in the structure, using ``rcsb_binding_affinity`` and the nonpolymer
+    entity data.
     """
     async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{RCSB_DATA_BASE}/entry/{pdb_id}",
+        resp = await client.post(
+            RCSB_GRAPHQL,
+            json={"query": _BINDING_SITE_QUERY, "variables": {"pdb_id": pdb_id}},
             timeout=30,
         )
         resp.raise_for_status()
-        entry = resp.json()
+        data = resp.json()
 
-    sites = []
+    entry = (data.get("data") or {}).get("entry") or {}
 
-    # struct_site_gen contains the residues in each binding site
-    site_gens = entry.get("struct_site_gen", [])
-    # Group by site_id
-    site_residues = defaultdict(list)
+    # Build a comp_id → name map from nonpolymer entities
+    comp_names: dict[str, str] = {}
+    for npe in entry.get("nonpolymer_entities") or []:
+        pnp = npe.get("pdbx_entity_nonpoly") or {}
+        cid = pnp.get("comp_id", "")
+        if cid and cid not in _COMMON_ADDITIVES:
+            comp_names[cid] = pnp.get("name") or ""
 
-    for sg in site_gens:
-        site_id = sg.get("site_id", "")
-        chain = sg.get("auth_asym_id", "")
-        resname = sg.get("auth_comp_id", "")
-        resnum = sg.get("auth_seq_id", "")
-        if chain and resnum:
-            site_residues[site_id].append(f"{chain}:{resnum}")
+    # Collect unique ligand comp_ids from binding affinity records
+    seen: set[str] = set()
+    for ba in entry.get("rcsb_binding_affinity") or []:
+        cid = ba.get("comp_id", "")
+        if cid and cid not in _COMMON_ADDITIVES:
+            seen.add(cid)
 
-    # struct_site has the site descriptions
-    struct_sites = entry.get("struct_site", [])
-    site_details = {s.get("id", ""): s.get("details", "") for s in struct_sites}
+    # Also include ligands not in binding_affinity but present as nonpolymers
+    seen.update(comp_names.keys())
 
-    for site_id, residues in site_residues.items():
-        details = site_details.get(site_id, "")
-        # Try to extract ligand from details string
-        ligand_id = None
-        if details:
-            # Details often looks like "BINDING SITE FOR RESIDUE AQ4 A 1"
-            parts = details.upper().split()
-            for i, p in enumerate(parts):
-                if p == "RESIDUE" and i + 1 < len(parts):
-                    ligand_id = parts[i + 1]
-                    break
-
+    sites: list[BindingSite] = []
+    for i, comp_id in enumerate(sorted(seen), start=1):
         sites.append(
             BindingSite(
-                site_id=site_id,
-                residues=residues,
-                ligand_id=ligand_id,
+                site_id=f"site_{i}",
+                residues=[],
+                ligand_id=comp_id,
+                ligand_name=comp_names.get(comp_id),
                 source="PDB",
             )
         )

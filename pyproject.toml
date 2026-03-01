@@ -5,6 +5,7 @@ description = "Protein-ligand binding analysis toolkit"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "httpx>=0.27.0",
+    "openai>=1.0.0",
     "pydantic>=2.0.0",
     "rcsbsearchapi>=2.0.0",
     "typer>=0.9.0",
@@ -13,14 +14,25 @@ dependencies = [
 ]
 
 [project.scripts]
-bind-protein = "bind_tools.protein.cli:main"
+bind-agent = "bind_tools.agent.cli:main"
+bind-boltz = "bind_tools.boltz.cli:app"
+bind-gnina = "bind_tools.gnina.cli:app"
 bind-ligand = "bind_tools.ligand.cli:main"
+bind-plip = "bind_tools.plip.cli:app"
+bind-posebusters = "bind_tools.posebusters.cli:app"
+bind-protein = "bind_tools.protein.cli:main"
+bind-qmd = "bind_tools.qmd.cli:app"
+bind-resolve = "bind_tools.resolve.cli:app"
 
 [project.optional-dependencies]
+db = [
+    "psycopg2-binary>=2.9.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "ruff>=0.3.0",
+    "psycopg2-binary>=2.9.0",
 ]
 
 [build-system]

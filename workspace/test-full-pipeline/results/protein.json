@@ -1,0 +1,111 @@
+{
+  "apiVersion": "binding.dev/v1",
+  "kind": "ResolveProteinResult",
+  "metadata": {
+    "requestId": "req-16428279b166",
+    "createdAt": "2026-02-28T22:10:46.757546Z",
+    "labels": {}
+  },
+  "tool": "resolve",
+  "toolVersion": "",
+  "wrapperVersion": "0.1.0",
+  "status": "succeeded",
+  "inputsResolved": {
+    "name": "EGFR",
+    "organism": "human",
+    "uniprot": null,
+    "download_dir": "proteins/"
+  },
+  "parametersResolved": {},
+  "summary": {
+    "uniprot_accession": "P00533",
+    "gene_name": "EGFR",
+    "protein_name": "Epidermal growth factor receptor",
+    "organism": "Homo sapiens",
+    "sequence_length": 1210,
+    "fasta_path": "proteins/proteins/P00533.fasta",
+    "best_structures": [
+      {
+        "pdb_id": "1XKK",
+        "resolution": 2.4,
+        "experimental_method": "X-RAY DIFFRACTION",
+        "chain_id": "",
+        "has_ligand": true,
+        "ligand_ids": [
+          "FMM"
+        ]
+      },
+      {
+        "pdb_id": "2ITN",
+        "resolution": 2.47,
+        "experimental_method": "X-RAY DIFFRACTION",
+        "chain_id": "",
+        "has_ligand": true,
+        "ligand_ids": [
+          "ANP"
+        ]
+      },
+      {
+        "pdb_id": "2ITV",
+        "resolution": 2.47,
+        "experimental_method": "X-RAY DIFFRACTION",
+        "chain_id": "",
+        "has_ligand": true,
+        "ligand_ids": [
+          "ANP"
+        ]
+      },
+      {
+        "pdb_id": "1MOX",
+        "resolution": 2.5,
+        "experimental_method": "X-RAY DIFFRACTION",
+        "chain_id": "",
+        "has_ligand": true,
+        "ligand_ids": [
+          "PT",
+          "NAG"
+        ]
+      },
+      {
+        "pdb_id": "2GS6",
+        "resolution": 2.6,
+        "experimental_method": "X-RAY DIFFRACTION",
+        "chain_id": "",
+        "has_ligand": true,
+        "ligand_ids": [
+          "112"
+        ]
+      }
+    ],
+    "binding_sites": [
+      {
+        "site_id": "site_1",
+        "residues": [],
+        "ligand_id": "FMM",
+        "ligand_name": "N-{3-CHLORO-4-[(3-FLUOROBENZYL)OXY]PHENYL}-6-[5-({[2-(METHYLSULFONYL)ETHYL]AMINO}METHYL)-2-FURYL]-4-QUINAZOLINAMINE",
+        "source": "PDB"
+      },
+      {
+        "site_id": "site_1",
+        "residues": [],
+        "ligand_id": "ANP",
+        "ligand_name": "PHOSPHOAMINOPHOSPHONIC ACID-ADENYLATE ESTER",
+        "source": "PDB"
+      },
+      {
+        "site_id": "site_1",
+        "residues": [],
+        "ligand_id": "ANP",
+        "ligand_name": "PHOSPHOAMINOPHOSPHONIC ACID-ADENYLATE ESTER",
+        "source": "PDB"
+      }
+    ],
+    "downloaded_path": "proteins/proteins/structures/1xkk.cif",
+    "num_structures": 5
+  },
+  "artifacts": {},
+  "warnings": [],
+  "errors": [],
+  "provenance": {},
+  "runtimeSeconds": 7.731
+}

@@ -1,0 +1,23 @@
+{
+  "apiVersion": "binding.dev/v1",
+  "kind": "GninaResult",
+  "metadata": {
+    "requestId": "req-adad8405a408",
+    "createdAt": "2026-02-28T22:55:39.424078Z",
+    "labels": {}
+  },
+  "tool": "gnina",
+  "toolVersion": "",
+  "wrapperVersion": "0.1.0",
+  "status": "failed",
+  "inputsResolved": {},
+  "parametersResolved": {},
+  "summary": {},
+  "artifacts": {},
+  "warnings": [],
+  "errors": [
+    "gnina exited with code 125.\nstderr: Unable to find image 'gnina/gnina:latest' locally\ndocker: Error response from daemon: write /var/lib/desktop-containerd/daemon/io.containerd.metadata.v1.bolt/meta.db: input/output error\n\nRun 'docker run --help' for more information\n"
+  ],
+  "provenance": {},
+  "runtimeSeconds": 0.235
+}

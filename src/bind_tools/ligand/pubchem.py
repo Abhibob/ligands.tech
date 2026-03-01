@@ -43,11 +43,16 @@ async def get_cid_by_name(name: str) -> int | None:
 
 async def get_cid_by_smiles(smiles: str) -> int | None:
     """Get PubChem CID from SMILES string."""
-    url = f"{PUBCHEM_BASE}/compound/smiles/{smiles}/cids/JSON"
+    # Use POST to avoid URL-encoding issues with special characters (#, /, etc.)
+    url = f"{PUBCHEM_BASE}/compound/smiles/cids/JSON"
 
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=30)
+            resp = await client.post(
+                url,
+                data={"smiles": smiles},
+                timeout=30,
+            )
             resp.raise_for_status()
             data = resp.json()
 
@@ -102,8 +107,8 @@ async def fetch_compound_by_cid(cid: int) -> dict:
 
     return {
         "cid": cid,
-        "canonical_smiles": prop.get("CanonicalSMILES"),
-        "isomeric_smiles": prop.get("IsomericSMILES"),
+        "canonical_smiles": prop.get("CanonicalSMILES") or prop.get("SMILES"),
+        "isomeric_smiles": prop.get("IsomericSMILES") or prop.get("ConnectivitySMILES"),
         "molecular_formula": prop.get("MolecularFormula"),
         "molecular_weight": prop.get("MolecularWeight"),
         "inchi": prop.get("InChI"),

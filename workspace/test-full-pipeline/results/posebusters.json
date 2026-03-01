@@ -1,0 +1,23 @@
+{
+  "apiVersion": "binding.dev/v1",
+  "kind": "PoseBustersCheckResult",
+  "metadata": {
+    "requestId": "req-17f246a0b34a",
+    "createdAt": "2026-02-28T22:11:37.155061Z",
+    "labels": {}
+  },
+  "tool": "posebusters",
+  "toolVersion": "",
+  "wrapperVersion": "0.1.0",
+  "status": "failed",
+  "inputsResolved": {},
+  "parametersResolved": {},
+  "summary": {},
+  "artifacts": {},
+  "warnings": [],
+  "errors": [
+    "1 validation error for PoseBustersCheckRequest\nspec.predictedPoses\n  Field required [type=missing, input_value={'mode': 'mol', 'ligand_s.../pubchem_176870_3d.sdf'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing"
+  ],
+  "provenance": {},
+  "runtimeSeconds": 0.003
+}
