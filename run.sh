@@ -16,6 +16,16 @@ if ! python -c "import psycopg2" 2>/dev/null; then
     ~/.local/bin/uv pip install -e ".[db]"
 fi
 
+# ── Propagate remote execution settings ────────────────────────────
+# Set REMOTE=on and BIND_TOOLS_API_KEY in the environment or .env
+# to route boltz/gnina calls to the remote REST API.
+if [ -n "${REMOTE:-}" ]; then
+    export REMOTE
+fi
+if [ -n "${BIND_TOOLS_API_KEY:-}" ]; then
+    export BIND_TOOLS_API_KEY
+fi
+
 # ── Run agent ───────────────────────────────────────────────────────
 echo ""
 exec bind-agent chat "$@"

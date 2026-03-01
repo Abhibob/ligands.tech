@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import shutil
 import tempfile
 from pathlib import Path
+
+import httpx
 
 from bind_tools.common.cli_base import console
 from bind_tools.common.errors import InputMissingError, UpstreamError
@@ -625,6 +628,131 @@ def _run_gnina_modal(
     return poses, run_result_obj
 
 
+REMOTE_BASE_URL = "https://benwu408--bind-tools-gpu-webapi-serve.modal.run"
+
+
+def _collect_gnina_input_files(
+    spec: GninaDockSpec | GninaScoreSpec | GninaMinimizeSpec,
+) -> list[dict[str, str]]:
+    """Read and base64-encode all input files referenced by the spec."""
+    files: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def _add_file(path_str: str) -> None:
+        if path_str in seen:
+            return
+        seen.add(path_str)
+        p = Path(path_str)
+        if p.is_file():
+            encoded = base64.b64encode(p.read_bytes()).decode()
+            files.append({"name": p.name, "data": encoded})
+
+    _add_file(spec.receptor_path)
+    for lig in spec.ligands:
+        if lig.sdf_path:
+            _add_file(lig.sdf_path)
+        if lig.mol2_path:
+            _add_file(lig.mol2_path)
+    if spec.search_space and spec.search_space.autobox_ligand_path:
+        _add_file(spec.search_space.autobox_ligand_path)
+
+    return files
+
+
+def _run_gnina_remote(
+    mode: str,
+    spec: GninaDockSpec | GninaScoreSpec | GninaMinimizeSpec,
+    artifacts_dir: Path,
+    timeout_s: int | None = None,
+    dry_run: bool = False,
+) -> tuple[list[GninaPose], RunResult | None]:
+    """Run gnina via the remote REST API."""
+    api_key = os.environ.get("BIND_TOOLS_API_KEY", "")
+    if not api_key:
+        raise UpstreamError("BIND_TOOLS_API_KEY environment variable is required for remote execution")
+
+    # Validate input files exist locally
+    ensure_file(spec.receptor_path, "receptor")
+    for lig in spec.ligands:
+        if lig.sdf_path:
+            ensure_file(lig.sdf_path, f"ligand SDF ({lig.id or lig.sdf_path})")
+        if lig.mol2_path:
+            ensure_file(lig.mol2_path, f"ligand MOL2 ({lig.id or lig.mol2_path})")
+    if spec.search_space and spec.search_space.autobox_ligand_path:
+        ensure_file(spec.search_space.autobox_ligand_path, "autobox ligand")
+
+    output_filename = f"gnina_{mode}_output.sdf"
+    gnina_args = _build_modal_gnina_args(mode, spec, output_filename)
+
+    if dry_run:
+        console.print(f"[yellow]Dry run (remote): would execute gnina {mode}[/yellow]")
+        console.print(f"[yellow]  Args: gnina {' '.join(gnina_args)}[/yellow]")
+        return [], None
+
+    # Collect and base64-encode input files
+    input_files = _collect_gnina_input_files(spec)
+
+    # Build request body
+    body: dict[str, object] = {
+        "gnina_args": gnina_args,
+        "input_files": input_files,
+        "output_filename": output_filename if mode != "score" else None,
+    }
+
+    # POST to remote endpoint
+    url = f"{REMOTE_BASE_URL}/v1/gnina/{mode}"
+    effective_timeout = timeout_s or 300
+
+    with httpx.Client(timeout=effective_timeout, follow_redirects=True) as client:
+        resp = client.post(
+            url,
+            json=body,
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+
+    if resp.status_code == 401:
+        raise UpstreamError("Remote API authentication failed (401). Check BIND_TOOLS_API_KEY.")
+    if resp.status_code == 422:
+        raise UpstreamError(f"Remote API validation error (422): {resp.text[:2000]}")
+    resp.raise_for_status()
+
+    remote_result = resp.json()
+
+    if remote_result.get("returncode", 1) != 0:
+        raise UpstreamError(
+            f"gnina (remote) exited with code {remote_result.get('returncode')}.\n"
+            f"stderr: {remote_result.get('stderr', '')[:2000]}"
+        )
+
+    # Write output files locally
+    output_dir = ensure_dir(artifacts_dir, "artifacts directory", create=True)
+
+    run_result_obj = RunResult(
+        returncode=remote_result["returncode"],
+        stdout=remote_result.get("stdout", ""),
+        stderr=remote_result.get("stderr", ""),
+        elapsed_seconds=0.0,
+        command=["gnina", "(remote)"] + gnina_args,
+    )
+
+    if mode == "score":
+        poses = _parse_score_stdout(remote_result.get("stdout", ""), mode)
+    else:
+        output_file = remote_result.get("output_file")
+        if not output_file:
+            raise UpstreamError("gnina (remote) did not produce expected output SDF")
+        sdf_path = output_dir / output_filename
+        sdf_path.write_bytes(base64.b64decode(output_file["data"]))
+        poses = parse_sdf_output(sdf_path)
+
+    return poses, run_result_obj
+
+
+def _is_remote() -> bool:
+    """Return True if remote execution is enabled via REMOTE env var."""
+    return os.environ.get("REMOTE", "").strip().lower() in ("on", "1", "true")
+
+
 def run_gnina_dispatch(
     mode: str,
     spec: GninaDockSpec | GninaScoreSpec | GninaMinimizeSpec,
@@ -634,7 +762,15 @@ def run_gnina_dispatch(
     dry_run: bool = False,
     use_modal: bool = False,
 ) -> tuple[list[GninaPose], RunResult | None]:
-    """Route to local Docker or Modal execution."""
+    """Route to local Docker, Modal, or remote REST API execution."""
+    if _is_remote():
+        return _run_gnina_remote(
+            mode=mode,
+            spec=spec,
+            artifacts_dir=artifacts_dir,
+            timeout_s=timeout_s,
+            dry_run=dry_run,
+        )
     if use_modal or os.environ.get("BIND_TOOLS_USE_MODAL", "").strip() == "1":
         return _run_gnina_modal(
             mode=mode,

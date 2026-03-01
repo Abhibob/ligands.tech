@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -9,6 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import httpx
 import yaml
 
 from bind_tools.common.errors import InputMissingError, UpstreamError, ValidationError
@@ -382,6 +384,144 @@ def _normalise_affinity(data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+# ── Remote REST API dispatch ──────────────────────────────────────────────
+
+REMOTE_BASE_URL = "https://benwu408--bind-tools-gpu-webapi-serve.modal.run"
+
+
+def _collect_input_files_for_remote(upstream_yaml: dict[str, Any]) -> list[dict[str, str]]:
+    """Collect input files referenced in the upstream YAML and base64-encode them.
+
+    Scans the sequences list for file-path references (sdf, mol2, fasta) and
+    reads + encodes them for the REST API.
+    """
+    files: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    for seq_entry in upstream_yaml.get("sequences", []):
+        for _kind, value in seq_entry.items():
+            if not isinstance(value, dict):
+                continue
+            for file_key in ("sdf", "mol2", "fasta"):
+                file_path = value.get(file_key)
+                if file_path and file_path not in seen:
+                    seen.add(file_path)
+                    path = Path(file_path)
+                    if path.is_file():
+                        encoded = base64.b64encode(path.read_bytes()).decode()
+                        files.append({"name": path.name, "data": encoded})
+                        # Rewrite the YAML value to use bare filename
+                        value[file_key] = path.name
+
+    return files
+
+
+def run_predict_remote(
+    spec: BoltzPredictSpec,
+    artifacts_dir: str | None = None,
+    timeout_s: int | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Execute boltz predict via the remote REST API and return a result summary dict."""
+
+    api_key = os.environ.get("BIND_TOOLS_API_KEY", "")
+    if not api_key:
+        raise UpstreamError("BIND_TOOLS_API_KEY environment variable is required for remote execution")
+
+    # Translate to upstream YAML
+    upstream_yaml = translate_to_upstream_yaml(spec)
+
+    # Collect and base64-encode input files referenced in the YAML
+    input_files = _collect_input_files_for_remote(upstream_yaml)
+
+    if dry_run:
+        return {
+            "dryRun": True,
+            "command": ["remote", "POST", "/v1/boltz/predict"],
+            "upstreamYaml": upstream_yaml,
+            "backend": "remote",
+        }
+
+    # Build request body
+    body: dict[str, Any] = {"upstream_yaml": upstream_yaml}
+    if input_files:
+        body["input_files"] = input_files
+    if spec.msa.use_server:
+        body["use_msa_server"] = True
+    if spec.execution.recycling_steps is not None:
+        body["recycling_steps"] = spec.execution.recycling_steps
+    if spec.execution.diffusion_samples is not None:
+        body["diffusion_samples"] = spec.execution.diffusion_samples
+    if spec.execution.seed is not None:
+        body["seed"] = spec.execution.seed
+
+    # POST to remote endpoint
+    url = f"{REMOTE_BASE_URL}/v1/boltz/predict"
+    effective_timeout = timeout_s or 600
+
+    with httpx.Client(timeout=effective_timeout, follow_redirects=True) as client:
+        resp = client.post(
+            url,
+            json=body,
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+
+    if resp.status_code == 401:
+        raise UpstreamError("Remote API authentication failed (401). Check BIND_TOOLS_API_KEY.")
+    if resp.status_code == 422:
+        raise UpstreamError(f"Remote API validation error (422): {resp.text[:2000]}")
+    resp.raise_for_status()
+
+    remote_result = resp.json()
+
+    if remote_result.get("returncode", 1) != 0:
+        raise UpstreamError(
+            f"boltz predict (remote) exited with code {remote_result.get('returncode')}.\n"
+            f"stderr: {remote_result.get('stderr', '')[:2000]}"
+        )
+
+    # Write output files locally
+    if artifacts_dir:
+        out_dir = ensure_dir(artifacts_dir, "artifacts directory", create=True)
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="boltz_remote_"))
+
+    for fp in remote_result.get("output_files", []):
+        file_path = out_dir / fp["name"]
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(base64.b64decode(fp["data"]))
+
+    # Build result summary matching the shape of run_predict()
+    result_summary: dict[str, Any] = {
+        "command": ["boltz", "predict", "(remote)"],
+        "outputDir": str(out_dir),
+        "backend": "remote",
+    }
+
+    if remote_result.get("confidence"):
+        result_summary["confidence"] = _normalise_confidence(remote_result["confidence"])
+
+    if remote_result.get("affinity"):
+        result_summary["affinity"] = _normalise_affinity(remote_result["affinity"])
+
+    if remote_result.get("primary_complex_path"):
+        result_summary["primaryComplexPath"] = str(
+            out_dir / remote_result["primary_complex_path"]
+        )
+
+    if remote_result.get("structure_filenames"):
+        result_summary["structurePaths"] = [
+            str(out_dir / fn) for fn in remote_result["structure_filenames"]
+        ]
+
+    return result_summary
+
+
+def _is_remote() -> bool:
+    """Return True if remote execution is enabled via REMOTE env var."""
+    return os.environ.get("REMOTE", "").strip().lower() in ("on", "1", "true")
+
+
 def run_predict_dispatch(
     spec: BoltzPredictSpec,
     artifacts_dir: str | None = None,
@@ -390,7 +530,14 @@ def run_predict_dispatch(
     dry_run: bool = False,
     use_modal: bool = False,
 ) -> dict[str, Any]:
-    """Route to local or Modal execution based on the use_modal flag or env var."""
+    """Route to local, Modal, or remote REST API execution."""
+    if _is_remote():
+        return run_predict_remote(
+            spec,
+            artifacts_dir=artifacts_dir,
+            timeout_s=timeout_s,
+            dry_run=dry_run,
+        )
     if use_modal or os.environ.get("BIND_TOOLS_USE_MODAL", "").strip() == "1":
         return run_predict_modal(
             spec,

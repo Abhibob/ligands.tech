@@ -86,6 +86,11 @@ class ToolExecutor:
         env["BIND_AGENT_ID"] = self.config.agent_id
         env["BIND_RUN_ID"] = self.config.run_id
 
+        # Propagate remote execution and API key settings to subprocesses.
+        for key in ("REMOTE", "BIND_TOOLS_API_KEY"):
+            if key in os.environ:
+                env[key] = os.environ[key]
+
         # Ensure the project venv's bin is on PATH so bind-* CLIs are found.
         venv_bin = spec_root / ".venv" / "bin"
         if venv_bin.is_dir():
