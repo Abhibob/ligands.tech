@@ -15,7 +15,7 @@ echo "[2/4] Installing dependencies..."
 
 echo "[3/4] Starting API server (port 8000)..."
 export BIND_DB_URL="${BIND_DB_URL:-postgresql://bind:bind@localhost:5432/bindops}"
-uvicorn bind_tools.api.app:create_app --factory --host 0.0.0.0 --port 8000 &
+.venv/bin/uvicorn bind_tools.api.app:create_app --factory --host 0.0.0.0 --port 8000 &
 API_PID=$!
 
 echo "[4/4] Starting frontend (port 5173)..."
