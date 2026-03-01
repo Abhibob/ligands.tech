@@ -1,18 +1,38 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { Plus } from "lucide-react";
+import { api } from "../../api/client";
 
 const links = [
   { to: "/", label: "Home" },
-  { to: "/researchers", label: "Researchers" },
+  { to: "/agents", label: "Agents" },
+  { to: "/finished", label: "Finished" },
   { to: "/results", label: "Results" },
 ];
 
 export default function Navbar() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const [submitting, setSubmitting] = useState(false);
 
   const isActive = (to: string) => {
     if (to === "/") return location.pathname === "/";
     return location.pathname.startsWith(to);
+  };
+
+  const handleNewRun = async () => {
+    const prompt = window.prompt("Enter a binding analysis prompt:");
+    if (!prompt?.trim()) return;
+    setSubmitting(true);
+    try {
+      const res = await api.createRun(prompt.trim());
+      navigate(`/agents/${res.agentId}`);
+    } catch (err) {
+      console.error("Failed to create run:", err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -50,6 +70,14 @@ export default function Navbar() {
               </NavLink>
             );
           })}
+          <button
+            onClick={handleNewRun}
+            disabled={submitting}
+            className="ml-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" />
+            New Run
+          </button>
         </div>
       </div>
     </nav>

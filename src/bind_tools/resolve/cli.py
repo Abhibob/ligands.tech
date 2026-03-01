@@ -223,19 +223,25 @@ def ligand(
 @app.command()
 def binders(
     gene: str | None = typer.Option(None, "--gene", help="Gene name of the target protein."),
+    target: str | None = typer.Option(None, "--target", help="Alias for --gene (target protein name)."),
     organism: str = typer.Option("human", "--organism", help="Organism common name."),
     uniprot: str | None = typer.Option(None, "--uniprot", help="UniProt accession of the target."),
     min_pchembl: float = typer.Option(6.0, "--min-pchembl", help="Minimum pChEMBL value for activity filter."),
     limit: int = typer.Option(20, "--limit", help="Maximum number of top compounds to return."),
+    download_dir: str | None = typer.Option(None, "--download-dir", help="Directory to batch-download SDF files for returned compounds."),
     json_out: str | None = typer.Option(None, "--json-out", help="Write JSON result envelope to file."),
     yaml_out: str | None = typer.Option(None, "--yaml-out", help="Write YAML result envelope to file."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate inputs and print plan, do not execute."),
 ) -> None:
     """Resolve known binders and approved drugs for a protein target via ChEMBL."""
+    # --target is an alias for --gene
+    if target and not gene:
+        gene = target
+
     if dry_run:
         console.print("[bold]Dry-run:[/bold] would resolve binders with:")
         console.print(f"  gene={gene}, organism={organism}, uniprot={uniprot}")
-        console.print(f"  min_pchembl={min_pchembl}, limit={limit}")
+        console.print(f"  min_pchembl={min_pchembl}, limit={limit}, download_dir={download_dir}")
         raise typer.Exit(0)
 
     # Map organism name to taxonomy ID for the runner
@@ -250,6 +256,7 @@ def binders(
         "uniprot": uniprot,
         "min_pchembl": min_pchembl,
         "limit": limit,
+        "download_dir": download_dir,
     }
 
     start = time.monotonic()
@@ -260,11 +267,28 @@ def binders(
             uniprot_id=uniprot,
             min_pchembl=min_pchembl,
             limit=limit,
+            download_dir=download_dir,
         )
-        result.summary = summary
         result.status = "succeeded"
 
         _print_binders_summary(summary)
+
+        # Populate artifacts so the agent can find manifest/download paths
+        # without reading the (potentially large) summary.
+        if summary.get("manifest_path"):
+            result.artifacts["manifestPath"] = summary["manifest_path"]
+        if summary.get("download_dir"):
+            result.artifacts["downloadDir"] = summary["download_dir"]
+
+        # Truncate top_compounds in the summary to keep JSON under 12KB.
+        # Full data is in the MANIFEST.md file.
+        compounds = summary.get("top_compounds", [])
+        if len(compounds) > 20:
+            summary["top_compounds"] = compounds[:20]
+            summary["top_compounds_truncated"] = True
+            summary["total_compounds_before_truncation"] = len(compounds)
+
+        result.summary = summary
 
     except BindToolError as exc:
         result.status = "failed"

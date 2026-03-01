@@ -14,6 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
+bind-api = "bind_tools.api:main"
 bind-agent = "bind_tools.agent.cli:main"
 bind-boltz = "bind_tools.boltz.cli:app"
 bind-gnina = "bind_tools.gnina.cli:app"
@@ -26,8 +27,15 @@ bind-protprep = "bind_tools.protprep.cli:main"
 bind-qmd = "bind_tools.qmd.cli:app"
 bind-resolve = "bind_tools.resolve.cli:app"
 bind-search = "bind_tools.search.cli:main"
+bind-memory = "bind_tools.memory.cli:app"
+bind-websearch = "bind_tools.websearch.cli:main"
 
 [project.optional-dependencies]
+api = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "psycopg2-binary>=2.9.0",
+]
 db = [
     "psycopg2-binary>=2.9.0",
 ]
@@ -39,6 +47,9 @@ protprep = [
     "pdbfixer>=1.9",
     "openmm>=8.0",
     "pdb2pqr>=3.6.0",
+]
+batch = [
+    "rdkit>=2023.0",
 ]
 ligprep = [
     "rdkit>=2023.0",

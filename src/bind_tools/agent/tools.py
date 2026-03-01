@@ -10,12 +10,14 @@ TOOLS: list[dict] = [
             "description": (
                 "Execute a shell command in the workspace directory.\n\n"
                 "Available CLIs: bind-resolve, bind-boltz, bind-posebusters, "
-                "bind-gnina, bind-plip, bind-qmd.\n\n"
+                "bind-gnina, bind-plip, bind-qmd, bind-websearch, bind-memory.\n\n"
                 "IMPORTANT: Always use --json-out results/<name>.json to save "
                 "output to a file, then use read_file to inspect the result. "
                 "Command stdout is truncated — the JSON file has the full data.\n\n"
-                "Use --download-dir to save proteins/ligands to the pre-created "
-                "workspace directories (proteins/, ligands/, etc.).\n\n"
+                "Use --download-dir to save proteins/ligands to workspace directories.\n"
+                "Use --ligand-dir / --complex-dir / --pred-dir for batch operations on directories.\n"
+                "Use --top-n N to limit results to top N (max 100) sorted by score.\n"
+                "Batch operations write a MANIFEST.md file with sorted results.\n\n"
                 "Also supports standard shell commands (ls, grep, mkdir, etc.)."
             ),
             "parameters": {

@@ -23,22 +23,33 @@ from .models import BoltzPredictSpec
 
 
 def translate_to_upstream_yaml(spec: BoltzPredictSpec) -> dict[str, Any]:
-    """Convert our BoltzPredictSpec into the dict that Boltz CLI expects as its input YAML."""
+    """Convert our BoltzPredictSpec into the dict that the Boltz API expects.
+
+    Matches the upstream_yaml format documented in BOLTZ_API.md:
+    - version: 1
+    - sequences: list of protein/ligand entries
+    - constraints: optional pocket_residues, contacts, method_conditioning
+    - properties: optional list with affinity binder reference
+    """
 
     sequences: list[dict[str, Any]] = []
 
     # --- protein target ---
     target = spec.target
-    protein_seq: str | None = None
+    protein_id = target.name or "A"
+    protein_entry: dict[str, Any] = {"id": protein_id}
 
     if target.protein_fasta_path:
         fasta_path = ensure_file(target.protein_fasta_path, "protein FASTA")
+        # Read sequence inline — the API accepts both "sequence" and "fasta" file ref.
+        # Using inline sequence is most reliable for the remote API.
         protein_seq = _read_fasta_sequence(fasta_path)
+        protein_entry["sequence"] = protein_seq
+        # Also keep fasta ref for local/modal execution that can use file paths.
+        protein_entry["_fasta_path"] = str(fasta_path)
     elif target.protein_sequence:
-        protein_seq = target.protein_sequence
+        protein_entry["sequence"] = target.protein_sequence
     elif target.protein_pdb_path:
-        # Boltz can accept structure files directly; pass as template later.
-        # We still need a sequence – caller should provide one; raise if missing.
         raise ValidationError(
             "proteinPdbPath supplied without proteinSequence or proteinFastaPath. "
             "Please also provide the sequence for the target protein."
@@ -49,26 +60,30 @@ def translate_to_upstream_yaml(spec: BoltzPredictSpec) -> dict[str, Any]:
             "Please also provide the sequence for the target protein."
         )
 
-    if protein_seq:
-        protein_entry: dict[str, Any] = {"protein": {"id": target.name or "A", "sequence": protein_seq}}
-        sequences.append(protein_entry)
+    if "sequence" in protein_entry:
+        # Strip internal _fasta_path before emitting the final YAML entry.
+        clean_entry = {k: v for k, v in protein_entry.items() if not k.startswith("_")}
+        sequences.append({"protein": clean_entry})
 
     # --- ligands ---
-    for lig in spec.ligands:
+    # Track the first ligand ID for affinity binder reference.
+    first_ligand_id: str | None = None
+    for idx, lig in enumerate(spec.ligands):
+        lig_id = lig.id or chr(ord("B") + idx)  # B, C, D, ...
+        if first_ligand_id is None:
+            first_ligand_id = lig_id
+
         if lig.smiles:
-            sequences.append({"ligand": {"id": lig.id or "L", "smiles": lig.smiles}})
+            sequences.append({"ligand": {"id": lig_id, "smiles": lig.smiles}})
         elif lig.sdf_path:
             ensure_file(lig.sdf_path, "ligand SDF")
-            # Boltz accepts CCD codes or SMILES; for SDF we read and convert later.
-            # For now, represent as smiles placeholder – the upstream CLI may not
-            # support SDF directly. We note this as a limitation.
-            sequences.append({"ligand": {"id": lig.id or "L", "sdf": lig.sdf_path}})
+            sequences.append({"ligand": {"id": lig_id, "sdf": lig.sdf_path}})
         elif lig.mol2_path:
             ensure_file(lig.mol2_path, "ligand MOL2")
-            sequences.append({"ligand": {"id": lig.id or "L", "mol2": lig.mol2_path}})
+            sequences.append({"ligand": {"id": lig_id, "mol2": lig.mol2_path}})
 
     upstream: dict[str, Any] = {
-        "version": 2,
+        "version": 1,
         "sequences": sequences,
     }
 
@@ -85,8 +100,9 @@ def translate_to_upstream_yaml(spec: BoltzPredictSpec) -> dict[str, Any]:
         upstream["constraints"] = cons_section
 
     # --- properties / affinity ---
-    if spec.task in ("affinity", "both"):
-        upstream.setdefault("properties", {})["affinity"] = True
+    # API format: "properties": [{"affinity": {"binder": "<ligand_id>"}}]
+    if spec.task in ("affinity", "both") and first_ligand_id:
+        upstream["properties"] = [{"affinity": {"binder": first_ligand_id}}]
 
     return upstream
 
@@ -235,9 +251,19 @@ def parse_affinity_json(path: Path) -> dict[str, Any]:
 
     result: dict[str, Any] = {"path": str(path)}
 
-    # Boltz affinity output may use various key names; normalise
-    binder_prob = data.get("binder_probability") or data.get("binderProbability")
-    affinity_val = data.get("affinity_value") or data.get("affinityValue") or data.get("affinity")
+    # Boltz affinity output uses various key names across versions; normalise.
+    # API returns: affinity_probability_binary, affinity_pred_value
+    binder_prob = (
+        data.get("affinity_probability_binary")
+        or data.get("binder_probability")
+        or data.get("binderProbability")
+    )
+    affinity_val = (
+        data.get("affinity_pred_value")
+        or data.get("affinity_value")
+        or data.get("affinityValue")
+        or data.get("affinity")
+    )
 
     if binder_prob is not None:
         result["binderProbability"] = float(binder_prob)
@@ -373,10 +399,25 @@ def _normalise_confidence(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalise_affinity(data: dict[str, Any]) -> dict[str, Any]:
-    """Extract affinity metrics from raw Boltz JSON."""
+    """Extract affinity metrics from raw Boltz JSON.
+
+    The API returns:
+    - affinity_probability_binary: P(binder) in [0, 1]
+    - affinity_pred_value: predicted binding affinity value
+    """
     result: dict[str, Any] = {}
-    binder_prob = data.get("binder_probability") or data.get("binderProbability")
-    affinity_val = data.get("affinity_value") or data.get("affinityValue") or data.get("affinity")
+    # Try all known key variants from the API / Boltz output
+    binder_prob = (
+        data.get("affinity_probability_binary")
+        or data.get("binder_probability")
+        or data.get("binderProbability")
+    )
+    affinity_val = (
+        data.get("affinity_pred_value")
+        or data.get("affinity_value")
+        or data.get("affinityValue")
+        or data.get("affinity")
+    )
     if binder_prob is not None:
         result["binderProbability"] = float(binder_prob)
     if affinity_val is not None:
@@ -392,8 +433,9 @@ REMOTE_BASE_URL = "https://benwu408--bind-tools-gpu-webapi-serve.modal.run"
 def _collect_input_files_for_remote(upstream_yaml: dict[str, Any]) -> list[dict[str, str]]:
     """Collect input files referenced in the upstream YAML and base64-encode them.
 
-    Scans the sequences list for file-path references (sdf, mol2, fasta) and
-    reads + encodes them for the REST API.
+    Scans sequences for file-path references (sdf, mol2, fasta, pdb, cif) and
+    reads + encodes them for the REST API. Rewrites YAML paths to bare filenames
+    so the server can match them to the input_files entries.
     """
     files: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -402,7 +444,7 @@ def _collect_input_files_for_remote(upstream_yaml: dict[str, Any]) -> list[dict[
         for _kind, value in seq_entry.items():
             if not isinstance(value, dict):
                 continue
-            for file_key in ("sdf", "mol2", "fasta"):
+            for file_key in ("sdf", "mol2", "fasta", "pdb", "cif"):
                 file_path = value.get(file_key)
                 if file_path and file_path not in seen:
                     seen.add(file_path)
@@ -410,7 +452,7 @@ def _collect_input_files_for_remote(upstream_yaml: dict[str, Any]) -> list[dict[
                     if path.is_file():
                         encoded = base64.b64encode(path.read_bytes()).decode()
                         files.append({"name": path.name, "data": encoded})
-                        # Rewrite the YAML value to use bare filename
+                        # Rewrite the YAML value to bare filename for the server
                         value[file_key] = path.name
 
     return files
@@ -422,16 +464,30 @@ def run_predict_remote(
     timeout_s: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Execute boltz predict via the remote REST API and return a result summary dict."""
+    """Execute boltz predict via the remote REST API (BOLTZ_API.md contract).
+
+    Sends a POST to /v1/boltz/predict with:
+    - upstream_yaml: {version: 1, sequences: [...], properties: [...]}
+    - input_files: [{name, data(base64)}] for any referenced files
+    - use_msa_server, diffusion_samples, recycling_steps, seed
+
+    Receives:
+    - returncode, stdout, stderr
+    - output_files: [{name, data(base64)}] with PDB structures + JSON metrics
+    - confidence: {confidence, ptm, iptm, ...}
+    - affinity: {affinity_probability_binary, affinity_pred_value}
+    - primary_complex_path, structure_filenames
+    """
 
     api_key = os.environ.get("BIND_TOOLS_API_KEY", "")
     if not api_key:
         raise UpstreamError("BIND_TOOLS_API_KEY environment variable is required for remote execution")
 
-    # Translate to upstream YAML
+    # Translate to upstream YAML (version: 1 format matching BOLTZ_API.md)
     upstream_yaml = translate_to_upstream_yaml(spec)
 
-    # Collect and base64-encode input files referenced in the YAML
+    # Collect and base64-encode input files referenced in the YAML.
+    # This also rewrites file paths in the YAML to bare filenames.
     input_files = _collect_input_files_for_remote(upstream_yaml)
 
     if dry_run:
@@ -439,23 +495,24 @@ def run_predict_remote(
             "dryRun": True,
             "command": ["remote", "POST", "/v1/boltz/predict"],
             "upstreamYaml": upstream_yaml,
+            "inputFileCount": len(input_files),
             "backend": "remote",
         }
 
-    # Build request body
-    body: dict[str, Any] = {"upstream_yaml": upstream_yaml}
+    # Build request body per BOLTZ_API.md
+    body: dict[str, Any] = {
+        "upstream_yaml": upstream_yaml,
+        "use_msa_server": spec.msa.use_server,
+        "diffusion_samples": spec.execution.diffusion_samples or 1,
+    }
     if input_files:
         body["input_files"] = input_files
-    if spec.msa.use_server:
-        body["use_msa_server"] = True
     if spec.execution.recycling_steps is not None:
         body["recycling_steps"] = spec.execution.recycling_steps
-    if spec.execution.diffusion_samples is not None:
-        body["diffusion_samples"] = spec.execution.diffusion_samples
     if spec.execution.seed is not None:
         body["seed"] = spec.execution.seed
 
-    # POST to remote endpoint
+    # POST to remote endpoint with generous timeout (predictions can take minutes)
     url = f"{REMOTE_BASE_URL}/v1/boltz/predict"
     effective_timeout = timeout_s or 600
 
@@ -463,7 +520,10 @@ def run_predict_remote(
         resp = client.post(
             url,
             json=body,
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
         )
 
     if resp.status_code == 401:
@@ -474,19 +534,25 @@ def run_predict_remote(
 
     remote_result = resp.json()
 
-    if remote_result.get("returncode", 1) != 0:
+    # Check returncode — 200 HTTP with non-zero returncode means boltz itself failed
+    returncode = remote_result.get("returncode", -1)
+    if returncode != 0:
+        stderr_snippet = remote_result.get("stderr", "")[:2000]
+        stdout_snippet = remote_result.get("stdout", "")[:1000]
         raise UpstreamError(
-            f"boltz predict (remote) exited with code {remote_result.get('returncode')}.\n"
-            f"stderr: {remote_result.get('stderr', '')[:2000]}"
+            f"boltz predict (remote) exited with code {returncode}.\n"
+            f"stderr: {stderr_snippet}\n"
+            f"stdout: {stdout_snippet}"
         )
 
-    # Write output files locally
+    # Write output files locally (base64 → disk)
     if artifacts_dir:
         out_dir = ensure_dir(artifacts_dir, "artifacts directory", create=True)
     else:
         out_dir = Path(tempfile.mkdtemp(prefix="boltz_remote_"))
 
-    for fp in remote_result.get("output_files", []):
+    output_files = remote_result.get("output_files", [])
+    for fp in output_files:
         file_path = out_dir / fp["name"]
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_bytes(base64.b64decode(fp["data"]))
@@ -496,23 +562,44 @@ def run_predict_remote(
         "command": ["boltz", "predict", "(remote)"],
         "outputDir": str(out_dir),
         "backend": "remote",
+        "remoteOutputFileCount": len(output_files),
     }
 
+    # Confidence scores from the API response
     if remote_result.get("confidence"):
         result_summary["confidence"] = _normalise_confidence(remote_result["confidence"])
 
+    # Affinity scores — API returns affinity_probability_binary / affinity_pred_value
     if remote_result.get("affinity"):
         result_summary["affinity"] = _normalise_affinity(remote_result["affinity"])
 
+    # Primary structure path
     if remote_result.get("primary_complex_path"):
         result_summary["primaryComplexPath"] = str(
             out_dir / remote_result["primary_complex_path"]
         )
 
+    # All structure file paths
     if remote_result.get("structure_filenames"):
         result_summary["structurePaths"] = [
             str(out_dir / fn) for fn in remote_result["structure_filenames"]
         ]
+
+    # Diagnostic warning if no output files despite success
+    if not output_files and not remote_result.get("primary_complex_path"):
+        import sys
+        _remote_keys = [k for k in remote_result if remote_result[k]]
+        print(
+            f"[boltz-remote] WARNING: returncode=0 but no output files. "
+            f"Remote response keys with data: {_remote_keys}. "
+            f"stdout snippet: {remote_result.get('stdout', '')[:500]}",
+            file=sys.stderr,
+        )
+        result_summary["warning"] = (
+            "Remote prediction succeeded (returncode=0) but no structure files "
+            "were returned. The remote GPU may not have generated output files. "
+            "Check the remote Modal deployment logs."
+        )
 
     return result_summary
 

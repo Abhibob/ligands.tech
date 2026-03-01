@@ -30,6 +30,7 @@ def profile(
     stdin_json: bool = typer.Option(False, "--stdin-json", help="Read JSON from stdin"),
     # ── Direct spec flags ────────────────────────────────────────────────
     complex: str = typer.Option(None, "--complex", help="Path to PDB/mmCIF complex file"),
+    complex_dir: str = typer.Option(None, "--complex-dir", help="Directory of PDB/CIF complex files to profile"),
     pdb_id: str = typer.Option(None, "--pdb-id", help="4-letter PDB ID to fetch from RCSB"),
     binding_site: str = typer.Option(None, "--binding-site", help="Binding site identifier"),
     model: int = typer.Option(1, "--model", min=1, help="Model number (1-based)"),
@@ -40,6 +41,8 @@ def profile(
     pics: bool = typer.Option(False, "--pics", help="Generate interaction diagrams"),
     # ── Structure handling flags ─────────────────────────────────────────
     nohydro: bool = typer.Option(False, "--nohydro", help="Do not add hydrogens"),
+    # ── Batch output ──────────────────────────────────────────────────
+    top_n: int = typer.Option(None, "--top-n", help="Return only top N results sorted by interaction count (max 100)"),
     # ── Output envelope ──────────────────────────────────────────────────
     json_out: str = typer.Option(None, "--json-out", help="Write JSON result envelope"),
     yaml_out: str = typer.Option(None, "--yaml-out", help="Write YAML result"),
@@ -54,76 +57,167 @@ def profile(
     start = time.monotonic()
 
     try:
-        # ── Load from request file or direct flags ───────────────────────
-        if request or stdin_json:
-            req = load_request(request, stdin_json, PlipProfileRequest)
-            spec = req.spec
-            result.metadata = req.metadata
+        # ── Batch mode: --complex-dir ─────────────────────────────────────
+        if complex_dir:
+            from bind_tools.common.batch import glob_input_dir
+
+            complexes = glob_input_dir(complex_dir, (".pdb", ".cif"), "complex directory")
+            art_dir = Path(artifacts_dir) if artifacts_dir else Path.cwd() / "plip_artifacts"
+
+            if dry_run:
+                console.print(f"[yellow]Dry run: would profile {len(complexes)} complexes[/yellow]")
+                raise typer.Exit(0)
+
+            if not quiet:
+                console.print(f"[bold]Profiling {len(complexes)} complexes...[/bold]")
+
+            all_summaries: list[dict] = []
+            failed_items: list[dict[str, str]] = []
+            for complex_path in complexes:
+                try:
+                    spec_i = PlipProfileSpec(
+                        complexPath=str(complex_path),
+                        bindingSite=binding_site,
+                        model=model,
+                        outputs=PlipOutputs(txt=txt, xml=xml, pymol=pymol, pics=pics),
+                        structureHandling=PlipStructureHandling(noHydro=nohydro),
+                    )
+                    summary_i = run_profile(spec_i, art_dir / complex_path.stem)
+                    summary_i["source_file"] = str(complex_path)
+                    summary_i["total_interactions"] = sum(
+                        summary_i.get("interactionCounts", {}).values()
+                    )
+                    all_summaries.append(summary_i)
+                except Exception as exc:
+                    failed_items.append({"id": complex_path.name, "error": str(exc)})
+                    if not quiet:
+                        console.print(f"  [red]{complex_path.name}: {exc}[/red]")
+
+            # Sort by total interactions descending
+            all_summaries.sort(key=lambda s: s.get("total_interactions", 0), reverse=True)
+
+            # Apply top-N
+            total_count = len(all_summaries)
+            if top_n is not None:
+                effective_top_n = min(top_n, 100)
+                all_summaries = all_summaries[:effective_top_n]
+
+            result.summary = {
+                "mode": "batch",
+                "totalComplexes": len(complexes),
+                "profiled": total_count,
+                "failed": len(failed_items),
+                "complexes": all_summaries,
+            }
+            result.status = "succeeded"
+            result.artifacts = {"directory": str(art_dir)}
+
+            # Write manifest
+            from bind_tools.common.manifest import write_manifest
+            manifest_path = Path(complex_dir) / "MANIFEST_plip.md"
+            interaction_counts_cols = ["H-bonds", "Hydrophobic", "Salt Bridges", "Pi-Stacking"]
+            write_manifest(
+                path=manifest_path,
+                title="bind-plip profile — Interaction Profiling Results",
+                columns=["Rank", "Complex", "Total Interactions", "Residues", "Sites"],
+                rows=[
+                    [
+                        str(i + 1),
+                        Path(s.get("source_file", "")).name,
+                        str(s.get("total_interactions", 0)),
+                        str(len(s.get("interactingResidues", []))),
+                        str(len(s.get("bindingSites", []))),
+                    ]
+                    for i, s in enumerate(all_summaries)
+                ],
+                metadata={
+                    "Total complexes": str(len(complexes)),
+                    "Profiled": str(total_count),
+                    "Failed": str(len(failed_items)),
+                    "Top N shown": str(len(all_summaries)),
+                },
+                failed_items=failed_items if failed_items else None,
+            )
+            result.artifacts["manifestPath"] = str(manifest_path)
+
+            if not quiet:
+                console.print(
+                    f"[green]Batch PLIP complete: {total_count} profiled, "
+                    f"{len(failed_items)} failed[/green]"
+                )
+
         else:
-            if not complex and not pdb_id:
-                console.print("[red]Provide --complex, --pdb-id, or --request[/red]")
-                raise typer.Exit(2)
+            # ── Single complex mode ───────────────────────────────────────
+            # ── Load from request file or direct flags ────────────────────
+            if request or stdin_json:
+                req = load_request(request, stdin_json, PlipProfileRequest)
+                spec = req.spec
+                result.metadata = req.metadata
+            else:
+                if not complex and not pdb_id:
+                    console.print("[red]Provide --complex, --complex-dir, --pdb-id, or --request[/red]")
+                    raise typer.Exit(2)
 
-            spec = PlipProfileSpec(
-                complexPath=complex,
-                pdbId=pdb_id,
-                bindingSite=binding_site,
-                model=model,
-                outputs=PlipOutputs(
-                    txt=txt,
-                    xml=xml,
-                    pymol=pymol,
-                    pics=pics,
-                ),
-                structureHandling=PlipStructureHandling(
-                    noHydro=nohydro,
-                ),
-            )
+                spec = PlipProfileSpec(
+                    complexPath=complex,
+                    pdbId=pdb_id,
+                    bindingSite=binding_site,
+                    model=model,
+                    outputs=PlipOutputs(
+                        txt=txt,
+                        xml=xml,
+                        pymol=pymol,
+                        pics=pics,
+                    ),
+                    structureHandling=PlipStructureHandling(
+                        noHydro=nohydro,
+                    ),
+                )
 
-        # Record resolved inputs
-        result.inputs_resolved = {
-            "complexPath": spec.complex_path,
-            "pdbId": spec.pdb_id,
-            "bindingSite": spec.binding_site,
-        }
-        result.parameters_resolved = {
-            "model": spec.model,
-            "outputs": spec.outputs.model_dump(),
-            "structureHandling": spec.structure_handling.model_dump(by_alias=True),
-        }
+            # Record resolved inputs
+            result.inputs_resolved = {
+                "complexPath": spec.complex_path,
+                "pdbId": spec.pdb_id,
+                "bindingSite": spec.binding_site,
+            }
+            result.parameters_resolved = {
+                "model": spec.model,
+                "outputs": spec.outputs.model_dump(),
+                "structureHandling": spec.structure_handling.model_dump(by_alias=True),
+            }
 
-        if verbose and not quiet:
-            console.print(f"[dim]Complex: {spec.complex_path or spec.pdb_id}[/dim]")
-            console.print(f"[dim]Binding site: {spec.binding_site or 'all'}[/dim]")
-            console.print(f"[dim]Model: {spec.model}[/dim]")
+            if verbose and not quiet:
+                console.print(f"[dim]Complex: {spec.complex_path or spec.pdb_id}[/dim]")
+                console.print(f"[dim]Binding site: {spec.binding_site or 'all'}[/dim]")
+                console.print(f"[dim]Model: {spec.model}[/dim]")
 
-        if dry_run:
-            console.print(
-                f"[yellow]Dry run: would profile "
-                f"'{spec.complex_path or spec.pdb_id}' "
-                f"(site={spec.binding_site or 'all'}, model={spec.model})[/yellow]"
-            )
-            raise typer.Exit(0)
+            if dry_run:
+                console.print(
+                    f"[yellow]Dry run: would profile "
+                    f"'{spec.complex_path or spec.pdb_id}' "
+                    f"(site={spec.binding_site or 'all'}, model={spec.model})[/yellow]"
+                )
+                raise typer.Exit(0)
 
-        # ── Resolve artifacts directory ──────────────────────────────────
-        art_dir = Path(artifacts_dir) if artifacts_dir else Path.cwd() / "plip_artifacts"
+            # ── Resolve artifacts directory ──────────────────────────────
+            art_dir = Path(artifacts_dir) if artifacts_dir else Path.cwd() / "plip_artifacts"
 
-        # ── Run PLIP profiling ───────────────────────────────────────────
-        summary = run_profile(spec, art_dir)
-        result.summary = summary
-        result.status = "succeeded"
-        result.artifacts = {"directory": str(art_dir)}
+            # ── Run PLIP profiling ───────────────────────────────────────
+            summary = run_profile(spec, art_dir)
+            result.summary = summary
+            result.status = "succeeded"
+            result.artifacts = {"directory": str(art_dir)}
 
-        if not quiet:
-            n_sites = len(summary.get("bindingSites", []))
-            n_interactions = sum(summary.get("interactionCounts", {}).values())
-            n_residues = len(summary.get("interactingResidues", []))
-            console.print(
-                f"[green]PLIP profiling complete: "
-                f"{n_sites} binding site(s), "
-                f"{n_interactions} interaction(s), "
-                f"{n_residues} interacting residue(s)[/green]"
-            )
+            if not quiet:
+                n_sites = len(summary.get("bindingSites", []))
+                n_interactions = sum(summary.get("interactionCounts", {}).values())
+                n_residues = len(summary.get("interactingResidues", []))
+                console.print(
+                    f"[green]PLIP profiling complete: "
+                    f"{n_sites} binding site(s), "
+                    f"{n_interactions} interaction(s), "
+                    f"{n_residues} interacting residue(s)[/green]"
+                )
 
     except typer.Exit:
         raise

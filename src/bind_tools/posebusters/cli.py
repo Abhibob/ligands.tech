@@ -26,6 +26,7 @@ app = typer.Typer(
 @app.command()
 def check(
     pred: list[str] = typer.Option(None, "--pred", help="Predicted pose file(s) (repeatable)"),
+    pred_dir: str = typer.Option(None, "--pred-dir", help="Directory of predicted pose files (alternative to --pred)"),
     protein: str = typer.Option(None, "--protein", help="Protein structure file (PDB/mmCIF)"),
     reference_ligand: str = typer.Option(None, "--reference-ligand", help="Reference ligand file (SDF/MOL2)"),
     config: str = typer.Option("auto", "--config", help="PoseBusters config: auto|mol|dock|redock"),
@@ -51,9 +52,18 @@ def check(
             spec = req.spec
             result.metadata = req.metadata
         else:
-            if not pred:
-                console.print("[red]Provide --pred (one or more) or --request[/red]")
+            # Combine --pred and --pred-dir
+            all_preds = list(pred) if pred else []
+            if pred_dir:
+                from bind_tools.common.batch import glob_input_dir
+                dir_files = glob_input_dir(pred_dir, (".pdb", ".cif"), "prediction directory")
+                all_preds.extend(str(f) for f in dir_files)
+
+            if not all_preds:
+                console.print("[red]Provide --pred, --pred-dir, or --request[/red]")
                 raise typer.Exit(2)
+
+            pred = all_preds
 
             performance = PoseBustersPerformance(
                 topN=top_n,
@@ -126,6 +136,39 @@ def check(
 
         # Record tool version
         result.tool_version = get_version()
+
+        # Write manifest when using directory input
+        if pred_dir:
+            from pathlib import Path
+            from bind_tools.common.manifest import write_manifest
+            # Sort summaries by pass fraction descending
+            sorted_summaries = sorted(summaries, key=lambda s: s.pass_fraction, reverse=True)
+            manifest_path = Path(pred_dir) / "MANIFEST_posebusters.md"
+            write_manifest(
+                path=manifest_path,
+                title="bind-posebusters check — Validation Results",
+                columns=["Rank", "Complex", "Pass Rate", "Fatal", "Major", "Minor", "Status"],
+                rows=[
+                    [
+                        str(i + 1),
+                        Path(s.input_path).name,
+                        f"{s.pass_fraction:.1%}",
+                        str(len(s.fatal_failures)),
+                        str(len(s.major_failures)),
+                        str(len(s.minor_failures)),
+                        "PASS" if s.passes_all_checks else "FAIL",
+                    ]
+                    for i, s in enumerate(sorted_summaries)
+                ],
+                metadata={
+                    "Total poses": str(total_poses),
+                    "Passed": str(passed_poses),
+                    "Failed": str(total_poses - passed_poses),
+                    "Avg pass rate": f"{avg_pass_fraction:.1%}",
+                },
+            )
+            result.artifacts = result.artifacts or {}
+            result.artifacts["manifestPath"] = str(manifest_path)
 
         if not quiet:
             console.print(

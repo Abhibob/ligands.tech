@@ -201,10 +201,11 @@ def resolve_protein(
             "ligand_ids": sh.ligand_ids,
         })
 
-    # Determine downloaded path from best structure
+    # Determine downloaded path from best structure.
+    # Prefer PDB over CIF because downstream tools (gnina) only accept PDB format.
     downloaded_path: str | None = None
     if resolved.best_structure:
-        downloaded_path = resolved.best_structure.cif_path or resolved.best_structure.pdb_path
+        downloaded_path = resolved.best_structure.pdb_path or resolved.best_structure.cif_path
 
     # Binding sites
     binding_sites: list[dict[str, Any]] = []
@@ -217,6 +218,13 @@ def resolve_protein(
             "source": bs.source,
         })
 
+    # Also expose individual format paths so agent can choose PDB for gnina.
+    pdb_path: str | None = None
+    cif_path: str | None = None
+    if resolved.best_structure:
+        pdb_path = resolved.best_structure.pdb_path
+        cif_path = resolved.best_structure.cif_path
+
     return {
         "uniprot_accession": resolved.uniprot_id,
         "gene_name": resolved.gene_name,
@@ -227,6 +235,8 @@ def resolve_protein(
         "best_structures": best_structures,
         "binding_sites": binding_sites,
         "downloaded_path": downloaded_path,
+        "pdb_path": pdb_path,
+        "cif_path": cif_path,
         "num_structures": len(best_structures),
     }
 
@@ -395,10 +405,15 @@ def resolve_binders(
         activities = (activity_data or {}).get("activities", [])
 
         top_compounds: list[dict[str, Any]] = []
+        seen_chembl_ids: set[str] = set()
         for act in activities:
+            cid = act.get("molecule_chembl_id", "")
+            if cid in seen_chembl_ids:
+                continue
+            seen_chembl_ids.add(cid)
             top_compounds.append(
                 {
-                    "molecule_chembl_id": act.get("molecule_chembl_id", ""),
+                    "molecule_chembl_id": cid,
                     "molecule_name": act.get("molecule_pref_name", ""),
                     "pchembl_value": act.get("pchembl_value"),
                     "standard_type": act.get("standard_type", ""),
@@ -428,7 +443,7 @@ def resolve_binders(
                 }
             )
 
-    return {
+    summary: dict[str, Any] = {
         "uniprot_accession": accession,
         "chembl_target_id": target_chembl_id,
         "target_name": target_pref_name,
@@ -437,6 +452,123 @@ def resolve_binders(
         "approved_drugs": approved_drugs,
         "top_compounds": top_compounds,
     }
+
+    # ── Batch SDF download ────────────────────────────────────────────────
+    if download_dir:
+        dl_dir = Path(download_dir)
+        dl_dir.mkdir(parents=True, exist_ok=True)
+        downloaded: list[dict[str, str]] = []
+        failed_downloads: list[dict[str, str]] = []
+
+        for compound in top_compounds:
+            smiles = compound.get("canonical_smiles", "")
+            chembl_id = compound.get("molecule_chembl_id", "")
+            if not smiles or not chembl_id:
+                failed_downloads.append({"id": chembl_id or "?", "error": "missing SMILES"})
+                continue
+            try:
+                sdf_path = _generate_sdf_from_smiles(smiles, chembl_id, dl_dir)
+                compound["sdf_path"] = str(sdf_path)
+                downloaded.append({"chembl_id": chembl_id, "sdf_path": str(sdf_path)})
+            except Exception as exc:
+                logger.warning("Failed to generate SDF for %s: %s", chembl_id, exc)
+                failed_downloads.append({"id": chembl_id, "error": str(exc)})
+                compound["sdf_path"] = None
+
+        # Write manifest
+        from bind_tools.common.manifest import write_manifest
+
+        manifest_path = dl_dir / "MANIFEST.md"
+        write_manifest(
+            path=manifest_path,
+            title="bind-resolve binders — Compound Library",
+            columns=["Rank", "ChEMBL ID", "Name", "pChEMBL", "SMILES", "SDF Path"],
+            rows=[
+                [
+                    str(i + 1),
+                    c.get("molecule_chembl_id", ""),
+                    c.get("molecule_name", "") or "",
+                    str(c.get("pchembl_value", "")),
+                    (c.get("canonical_smiles", "") or "")[:50],
+                    c.get("sdf_path") or "FAILED",
+                ]
+                for i, c in enumerate(top_compounds)
+            ],
+            metadata={
+                "Target": gene or uniprot_id or "",
+                "Total compounds": str(len(top_compounds)),
+                "Downloaded": str(len(downloaded)),
+            },
+            summary_lines=[
+                f"Downloaded: {len(downloaded)} / {len(top_compounds)}",
+                f"Failed: {len(failed_downloads)}",
+            ],
+            failed_items=failed_downloads if failed_downloads else None,
+        )
+
+        summary["download_dir"] = str(dl_dir)
+        summary["num_downloaded"] = len(downloaded)
+        summary["num_download_failed"] = len(failed_downloads)
+        summary["manifest_path"] = str(manifest_path)
+
+    return summary
+
+
+# ── SDF generation helpers ────────────────────────────────────────────────────
+
+
+def _generate_sdf_from_smiles(smiles: str, compound_id: str, dl_dir: Path) -> Path:
+    """Generate a 3D SDF file from a SMILES string.
+
+    Uses RDKit if available (fast, offline). Falls back to PubChem REST API.
+    """
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+    except ImportError:
+        return _download_sdf_pubchem(smiles, compound_id, dl_dir)
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise ValueError(f"Invalid SMILES for {compound_id}: {smiles}")
+
+    mol = Chem.AddHs(mol)
+
+    # Try ETKDGv3 first, fall back to random seed
+    status = AllChem.EmbedMolecule(mol, AllChem.ETKDGv3())
+    if status != 0:
+        status = AllChem.EmbedMolecule(mol, randomSeed=42)
+    if status != 0:
+        raise ValueError(f"Could not generate 3D coordinates for {compound_id}")
+
+    AllChem.MMFFOptimizeMolecule(mol, maxIters=200)
+
+    safe_id = compound_id.replace("/", "_")
+    sdf_path = dl_dir / f"{safe_id}.sdf"
+    writer = Chem.SDWriter(str(sdf_path))
+    writer.write(mol)
+    writer.close()
+    return sdf_path
+
+
+def _download_sdf_pubchem(smiles: str, compound_id: str, dl_dir: Path) -> Path:
+    """Fallback: download 3D SDF from PubChem by SMILES."""
+    import time as _time
+    import urllib.parse
+
+    safe_id = compound_id.replace("/", "_")
+    sdf_path = dl_dir / f"{safe_id}.sdf"
+
+    encoded_smiles = urllib.parse.quote(smiles, safe="")
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{encoded_smiles}/SDF?record_type=3d"
+
+    with _http_client() as client:
+        resp = client.get(url, timeout=30)
+        resp.raise_for_status()
+        sdf_path.write_bytes(resp.content)
+
+    _time.sleep(0.5)  # Rate limiting for PubChem
+    return sdf_path
 
 
 # ══════════════════════════════════════════════════════════════════════════════

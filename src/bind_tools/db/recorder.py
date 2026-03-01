@@ -170,8 +170,9 @@ class DbRecorder:
         agent_id: str | None,
         protein_name: str | None = None,
         ligand_name: str | None = None,
+        status: str = "pending",
     ) -> None:
-        """INSERT into hypotheses (ON CONFLICT DO NOTHING)."""
+        """INSERT into hypotheses. On conflict, update status and timestamp."""
         if not is_db_available():
             return
         try:
@@ -182,10 +183,12 @@ class DbRecorder:
                 with conn.cursor() as cur:
                     cur.execute(
                         """INSERT INTO hypotheses
-                           (id, run_id, agent_id, protein_name, ligand_name)
-                           VALUES (%s, %s, %s, %s, %s)
-                           ON CONFLICT (id) DO NOTHING""",
-                        (hypothesis_id, run_id, agent_id, protein_name, ligand_name),
+                           (id, run_id, agent_id, protein_name, ligand_name, status)
+                           VALUES (%s, %s, %s, %s, %s, %s)
+                           ON CONFLICT (id) DO UPDATE SET
+                             status = EXCLUDED.status,
+                             updated_at = NOW()""",
+                        (hypothesis_id, run_id, agent_id, protein_name, ligand_name, status),
                     )
         except Exception as exc:
             logger.warning("record_hypothesis failed: %s", exc)

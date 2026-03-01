@@ -122,6 +122,7 @@ def dock(
     stdin_json: bool = typer.Option(False, "--stdin-json", help="Read JSON from stdin"),
     receptor: str = typer.Option(None, "--receptor", help="Receptor PDB/PDBQT file"),
     ligand: list[str] = typer.Option(None, "--ligand", help="Ligand file(s) or SMILES (repeatable)"),
+    ligand_dir: str = typer.Option(None, "--ligand-dir", help="Directory of SDF/MOL2 ligand files (alternative to --ligand)"),
     autobox_ligand: str = typer.Option(None, "--autobox-ligand", help="Reference ligand for autobox"),
     center_x: float = typer.Option(None, "--center-x", help="Search space center X"),
     center_y: float = typer.Option(None, "--center-y", help="Search space center Y"),
@@ -135,6 +136,7 @@ def dock(
     scoring: str = typer.Option("vina", "--scoring", help="Scoring function: vina|vinardo|ad4_scoring"),
     seed: int = typer.Option(None, "--seed", help="Random seed"),
     pose_sort_order: str = typer.Option("cnnscore", "--pose-sort-order", help="Pose sort: cnnscore|cnnaffinity|energy"),
+    top_n: int = typer.Option(None, "--top-n", help="Return only top N results sorted by score (max 100)"),
     json_out: str = typer.Option(None, "--json-out", help="Write JSON result envelope"),
     yaml_out: str = typer.Option(None, "--yaml-out", help="Write YAML result"),
     artifacts_dir: str = typer.Option(None, "--artifacts-dir", help="Directory for output files"),
@@ -159,9 +161,16 @@ def dock(
             if not receptor:
                 console.print("[red]Provide --receptor or --request[/red]")
                 raise typer.Exit(2)
+            # Build ligand list from --ligand and --ligand-dir
+            all_ligand_paths = list(ligand) if ligand else []
+            if ligand_dir:
+                from bind_tools.common.batch import glob_input_dir
+                dir_files = glob_input_dir(ligand_dir, (".sdf", ".mol2"), "ligand directory")
+                all_ligand_paths.extend(str(f) for f in dir_files)
+
             spec = GninaDockSpec(
                 receptorPath=receptor,
-                ligands=_build_ligands(ligand),
+                ligands=_build_ligands(all_ligand_paths),
                 searchSpace=_build_search_space(
                     autobox_ligand, center_x, center_y, center_z,
                     size_x, size_y, size_z,
@@ -197,11 +206,49 @@ def dock(
             write_result(result, json_out, yaml_out)
             raise typer.Exit(0)
 
+        # Apply top-N truncation
+        total_poses_count = len(poses)
+        if top_n is not None:
+            effective_top_n = min(top_n, 100)
+            poses = poses[:effective_top_n]
+
         result = _build_result("dock", poses, spec.execution.pose_sort_order, time.monotonic() - start)
         result.artifacts = {"outputSdf": str(art_dir / "gnina_dock_output.sdf")}
 
         if run_result:
             result.provenance = {"dockerImage": DOCKER_IMAGE, "command": " ".join(run_result.command)}
+
+        # Write manifest when using directory input or top-n
+        if ligand_dir or top_n:
+            from bind_tools.common.manifest import write_manifest
+            manifest_path = art_dir / "MANIFEST.md"
+            write_manifest(
+                path=manifest_path,
+                title="bind-gnina dock — Docking Results",
+                columns=["Rank", "Ligand", "CNN Score", "CNN Affinity", "Energy (kcal/mol)", "Path"],
+                rows=[
+                    [
+                        str(i + 1),
+                        Path(p.path).stem if p.path else f"lig{i}",
+                        f"{p.cnn_pose_score:.4f}",
+                        f"{p.cnn_affinity:.3f}",
+                        f"{p.energy_kcal_mol:.2f}",
+                        p.path or "",
+                    ]
+                    for i, p in enumerate(poses)
+                ],
+                metadata={
+                    "Receptor": spec.receptor_path or "",
+                    "Total poses": str(total_poses_count),
+                    "Top N shown": str(len(poses)),
+                    "Sort order": spec.execution.pose_sort_order,
+                },
+                summary_lines=[
+                    f"Total poses generated: {total_poses_count}",
+                    f"Shown: {len(poses)}",
+                ],
+            )
+            result.artifacts["manifestPath"] = str(manifest_path)
 
         if not quiet:
             console.print(f"[green]Docking complete: {len(poses)} poses generated[/green]")

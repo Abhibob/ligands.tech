@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import time
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -46,6 +47,7 @@ def predict(
     # -- Ligands --
     ligand_sdf: Optional[list[str]] = typer.Option(None, "--ligand-sdf", help="Ligand SDF file (repeatable)"),
     ligand_smiles: Optional[list[str]] = typer.Option(None, "--ligand-smiles", help="Ligand SMILES string (repeatable)"),
+    ligand_dir: Optional[str] = typer.Option(None, "--ligand-dir", help="Directory of SDF ligand files (alternative to --ligand-sdf)"),
     # -- Task --
     task: str = typer.Option("structure", "--task", help="Task: structure|affinity|both"),
     # -- MSA --
@@ -59,6 +61,8 @@ def predict(
     seed: Optional[int] = typer.Option(None, "--seed", help="Random seed"),
     recycling_steps: Optional[int] = typer.Option(None, "--recycling-steps", help="Number of recycling steps (>=0)"),
     diffusion_samples: Optional[int] = typer.Option(None, "--diffusion-samples", help="Number of diffusion samples (>=1)"),
+    # -- Batch output --
+    top_n: Optional[int] = typer.Option(None, "--top-n", help="Return only top N results sorted by confidence (max 100)"),
     # -- Output --
     json_out: Optional[str] = typer.Option(None, "--json-out", help="Write JSON result envelope to file"),
     yaml_out: Optional[str] = typer.Option(None, "--yaml-out", help="Write YAML result to file"),
@@ -90,9 +94,15 @@ def predict(
                 proteinCifPath=protein_cif,
             )
 
-            # Build ligands from flags
+            # Build ligands from flags + directory
+            all_sdf_paths = list(ligand_sdf or [])
+            if ligand_dir:
+                from bind_tools.common.batch import glob_input_dir
+                dir_files = glob_input_dir(ligand_dir, (".sdf",), "ligand directory")
+                all_sdf_paths.extend(str(f) for f in dir_files)
+
             ligands: list[BoltzLigand] = []
-            for i, sdf in enumerate(ligand_sdf or []):
+            for i, sdf in enumerate(all_sdf_paths):
                 ligands.append(BoltzLigand(id=f"L{i}", sdfPath=sdf))
             for i, smi in enumerate(ligand_smiles or []):
                 ligands.append(BoltzLigand(id=f"S{i}", smiles=smi))
@@ -177,6 +187,39 @@ def predict(
                 result.artifacts["confidence"] = summary["confidence"]
             if "affinity" in summary:
                 result.artifacts["affinity"] = summary["affinity"]
+            # Propagate warnings from remote execution
+            if "warning" in summary:
+                result.warnings.append(summary["warning"])
+                result.status = "partial"
+
+            # Write manifest when using directory input or top-n
+            if ligand_dir or top_n:
+                from bind_tools.common.manifest import write_manifest
+                art_dir = Path(artifacts_dir) if artifacts_dir else Path.cwd() / "boltz_artifacts"
+                manifest_path = art_dir / "MANIFEST.md"
+                confidence = summary.get("confidence", {}) or {}
+                affinity_data = summary.get("affinity", {}) or {}
+                write_manifest(
+                    path=manifest_path,
+                    title="bind-boltz predict — Structure Prediction Results",
+                    columns=["Rank", "Ligand", "Confidence", "Ranking Score", "Binder Prob.", "Complex Path"],
+                    rows=[
+                        [
+                            "1",
+                            str(len(spec.ligands)) + " ligand(s)",
+                            f"{confidence.get('confidence', 'N/A')}",
+                            f"{confidence.get('ranking_score', 'N/A')}",
+                            f"{affinity_data.get('binderProbability', 'N/A')}",
+                            summary.get("primaryComplexPath", "N/A"),
+                        ]
+                    ],
+                    metadata={
+                        "Protein": spec.target.protein_fasta_path or spec.target.protein_pdb_path or "inline",
+                        "Ligand count": str(len(spec.ligands)),
+                        "Task": spec.task,
+                    },
+                )
+                result.artifacts["manifestPath"] = str(manifest_path)
 
             if not quiet:
                 console.print("[green]Boltz prediction completed successfully.[/green]")

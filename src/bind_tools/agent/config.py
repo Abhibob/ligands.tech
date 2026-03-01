@@ -30,7 +30,7 @@ class AgentConfig(BaseModel):
     agent_id: str = Field(default_factory=_default_agent_id)
     parent_agent_id: str | None = None
     db_url: str | None = None
-    max_turns: int = 30
+    max_turns: int = 500
     command_timeout_s: int = 600
     spec_root: str = "."
     stream: bool = True

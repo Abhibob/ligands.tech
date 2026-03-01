@@ -50,6 +50,18 @@ bind-gnina dock \
   --json-out /tmp/gnina.json
 ```
 
+### Batch dock a directory of ligands
+```bash
+bind-gnina dock \
+  --receptor receptor.pdb \
+  --ligand-dir ligands/ \
+  --autobox-ligand ref.sdf \
+  --top-n 20 \
+  --artifacts-dir docking/ \
+  --json-out /tmp/gnina-batch.json
+```
+`--ligand-dir` globs all SDF/MOL2 files in the directory. `--top-n N` returns only the top N poses sorted by score (max 100). Writes a `MANIFEST.md` in the artifacts directory.
+
 ## Interpretation
 Do not collapse:
 - docking energy

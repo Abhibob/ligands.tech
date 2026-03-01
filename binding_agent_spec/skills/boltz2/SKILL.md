@@ -38,6 +38,17 @@ bind-boltz predict \
   --json-out /tmp/boltz.json
 ```
 
+### Batch predict with directory of ligands
+```bash
+bind-boltz predict \
+  --protein-fasta target.fasta \
+  --ligand-dir ligands/ \
+  --top-n 20 \
+  --artifacts-dir boltz/ \
+  --json-out /tmp/boltz-batch.json
+```
+`--ligand-dir` globs all SDF files in the directory. `--top-n N` returns only the top N results sorted by confidence (max 100). Writes a `MANIFEST.md` in the artifacts directory.
+
 ## Interpretation
 - screening: read `summary.affinity.binderProbability`
 - optimization: read `summary.affinity.affinityValue`

@@ -20,12 +20,23 @@ Run plausibility checks on one or more poses.
 - `dock`: ligand + protein
 - `redock`: ligand + protein + reference ligand
 
-## Command pattern
+## Command patterns
+
+### Single pose check
 ```bash
 bind-posebusters check \
-  --request examples/requests/posebusters_check.yaml \
+  --pred complex.pdb \
   --json-out /tmp/pb.json
 ```
+
+### Batch check a directory of poses
+```bash
+bind-posebusters check \
+  --pred-dir boltz/ \
+  --top-n 10 \
+  --json-out /tmp/pb-batch.json
+```
+`--pred-dir` globs all PDB/CIF files in the directory. Results are sorted by pass rate. Writes a `MANIFEST_posebusters.md` in the prediction directory.
 
 ## Interpretation policy
 - fatal failures usually mean low confidence

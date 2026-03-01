@@ -2,8 +2,9 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import PageLayout from "./components/layout/PageLayout";
 import HomePage from "./pages/HomePage";
-import ResearchersPage from "./pages/ResearchersPage";
-import InteractionPage from "./pages/InteractionPage";
+import AgentsPage from "./pages/AgentsPage";
+import FinishedAgentsPage from "./pages/FinishedAgentsPage";
+import HypothesisPage from "./pages/HypothesisPage";
 import ResultsPage from "./pages/ResultsPage";
 
 function AnimatedRoutes() {
@@ -21,8 +22,9 @@ function AnimatedRoutes() {
         <Routes location={location}>
           <Route element={<PageLayout />}>
             <Route path="/" element={<HomePage />} />
-            <Route path="/researchers/:id?" element={<ResearchersPage />} />
-            <Route path="/interaction/:pairId" element={<InteractionPage />} />
+            <Route path="/agents/:id?" element={<AgentsPage />} />
+            <Route path="/finished/:id?" element={<FinishedAgentsPage />} />
+            <Route path="/hypothesis/:hypothesisId" element={<HypothesisPage />} />
             <Route path="/results" element={<ResultsPage />} />
           </Route>
         </Routes>

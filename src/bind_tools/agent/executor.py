@@ -86,8 +86,8 @@ class ToolExecutor:
         env["BIND_AGENT_ID"] = self.config.agent_id
         env["BIND_RUN_ID"] = self.config.run_id
 
-        # Propagate remote execution and API key settings to subprocesses.
-        for key in ("REMOTE", "BIND_TOOLS_API_KEY"):
+        # Propagate remote execution, API keys, and service keys to subprocesses.
+        for key in ("REMOTE", "BIND_TOOLS_API_KEY", "EXA_API_KEY", "SUPERMEMORY_API_KEY"):
             if key in os.environ:
                 env[key] = os.environ[key]
 
@@ -207,7 +207,8 @@ class ToolExecutor:
     # ── think ────────────────────────────────────────────────────────────
 
     def _handle_think(self, args: dict[str, Any]) -> str:
-        return json.dumps({"status": "ok"})
+        thought = args.get("thought", "")
+        return json.dumps({"status": "ok", "thought": thought})
 
     # ── checklist ─────────────────────────────────────────────────────────
 
@@ -270,6 +271,15 @@ class ToolExecutor:
         user_message = task
         if inputs:
             user_message += f"\n\n## Inputs\n```json\n{json.dumps(inputs, indent=2)}\n```"
+
+        # Append shared memory hint so subagents know how to search.
+        memory_hint = (
+            f"\n\n## Shared Memory\n"
+            f"Your run ID (memory tag) is: {self.config.run_id}\n"
+            f"Search shared memory: bind-memory search --query \"...\" "
+            f"--tag {self.config.run_id} --json-out results/memory-search.json"
+        )
+        user_message += memory_hint
 
         # Build child config inheriting from parent.
         child_config = AgentConfig(

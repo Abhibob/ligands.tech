@@ -15,12 +15,23 @@ Explain a pose in interaction terms.
 - you want residue-level interpretation
 - you want text/XML/PyMOL/image artifacts for review
 
-## Command pattern
+## Command patterns
+
+### Single complex profiling
 ```bash
 bind-plip profile \
-  --request examples/requests/plip_profile.yaml \
+  --complex complex.pdb \
   --json-out /tmp/plip.json
 ```
+
+### Batch profile a directory of complexes
+```bash
+bind-plip profile \
+  --complex-dir boltz/ \
+  --top-n 10 \
+  --json-out /tmp/plip-batch.json
+```
+`--complex-dir` globs all PDB/CIF files in the directory. Results are sorted by total interaction count. `--top-n N` limits output to top N (max 100). Writes a `MANIFEST_plip.md`.
 
 ## Interpretation policy
 PLIP is explanatory.

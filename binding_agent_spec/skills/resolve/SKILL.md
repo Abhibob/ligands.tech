@@ -74,13 +74,24 @@ python -m bind_tools.resolve.cli ligand \
 
 ### Find known binders for a target
 ```bash
-python -m bind_tools.resolve.cli binders \
+bind-resolve binders \
   --gene EGFR \
   --organism human \
   --min-pchembl 6.0 \
   --limit 20 \
   --json-out /tmp/binders.json
 ```
+
+### Batch-download SDF files for binders
+```bash
+bind-resolve binders \
+  --target EGFR \
+  --download-dir ligands/ \
+  --limit 50 \
+  --json-out /tmp/binders.json
+```
+Downloads SDF files for all returned compounds into `ligands/` and writes a `MANIFEST.md`.
+`--target` is an alias for `--gene`.
 
 ### Search RCSB PDB for structures
 ```bash
