@@ -15,8 +15,6 @@ from .models import ResolveBindersResult, ResolveLigandResult, ResolveProteinRes
 from .runner import (
     CHEMBL_BASE,
     ORGANISM_MAP,
-    PUBCHEM_BASE,
-    UNIPROT_BASE,
     resolve_binders,
     resolve_ligand,
     resolve_protein,
@@ -114,9 +112,32 @@ def _print_protein_summary(summary: dict, verbose: bool) -> None:
     else:
         console.print("  [yellow]No experimental structures found.[/yellow]")
 
-    af_url = summary.get("alphafold_url")
-    if af_url:
-        console.print(f"  AlphaFold: {af_url}")
+    if summary.get("sequence_length"):
+        console.print(f"  Sequence length: {summary['sequence_length']} aa")
+    if summary.get("fasta_path"):
+        console.print(f"  FASTA: {summary['fasta_path']}")
+
+    binding_sites = summary.get("binding_sites", [])
+    if binding_sites:
+        bs_table = Table(title=f"Binding Sites ({len(binding_sites)})")
+        bs_table.add_column("Site ID", style="cyan")
+        bs_table.add_column("Ligand")
+        bs_table.add_column("Residues", max_width=50)
+        bs_table.add_column("Source")
+        for bs in binding_sites:
+            ligand_label = bs.get("ligand_id", "") or ""
+            if bs.get("ligand_name"):
+                ligand_label = f"{ligand_label} ({bs['ligand_name']})" if ligand_label else bs["ligand_name"]
+            residues_str = ", ".join(bs.get("residues", [])[:8])
+            if len(bs.get("residues", [])) > 8:
+                residues_str += f" ... (+{len(bs['residues']) - 8})"
+            bs_table.add_row(
+                bs.get("site_id", ""),
+                ligand_label,
+                residues_str,
+                bs.get("source", ""),
+            )
+        console.print(bs_table)
 
     dl = summary.get("downloaded_path")
     if dl:
@@ -167,12 +188,22 @@ def ligand(
 
         console.print(f"\n[bold green]Ligand resolved:[/bold green] {summary.get('identifier', 'N/A')}")
         console.print(f"  Source:   {summary.get('source', 'N/A')}")
+        if summary.get("name"):
+            console.print(f"  Name:     {summary['name']}")
         if summary.get("smiles"):
             console.print(f"  SMILES:   {summary['smiles']}")
+        if summary.get("iupac_name"):
+            console.print(f"  IUPAC:    {summary['iupac_name']}")
         if summary.get("molecular_formula"):
             console.print(f"  Formula:  {summary['molecular_formula']}")
         if summary.get("molecular_weight"):
             console.print(f"  MW:       {summary['molecular_weight']}")
+        if summary.get("logp") is not None:
+            console.print(f"  LogP:     {summary['logp']}")
+        if summary.get("tpsa") is not None:
+            console.print(f"  TPSA:     {summary['tpsa']}")
+        if summary.get("h_bond_donors") is not None:
+            console.print(f"  HBD/HBA:  {summary['h_bond_donors']}/{summary.get('h_bond_acceptors', 'N/A')}")
         if summary.get("sdf_path"):
             console.print(f"  SDF:      {summary['sdf_path']}")
 
@@ -354,48 +385,49 @@ def doctor() -> None:
         console.print("[red]MISSING[/red] -- install with: pip install httpx")
         all_ok = False
 
-    # Check optional RDKit
+    # Check protein module
+    console.print("[bold]Checking bind_tools.protein module...[/bold]", end=" ")
+    try:
+        from bind_tools.protein import resolve_protein as _rp  # noqa: F401
+
+        console.print("[green]OK[/green]")
+    except Exception as exc:
+        console.print(f"[red]FAILED[/red] ({exc})")
+        all_ok = False
+
+    # Check ligand module
+    console.print("[bold]Checking bind_tools.ligand module...[/bold]", end=" ")
+    try:
+        from bind_tools.ligand import resolve_ligand as _rl  # noqa: F401
+
+        console.print("[green]OK[/green]")
+    except Exception as exc:
+        console.print(f"[red]FAILED[/red] ({exc})")
+        all_ok = False
+
+    # Check optional RDKit (used by ligand module for SMILES 3D fallback)
     console.print("[bold]Checking RDKit (optional)...[/bold]", end=" ")
     try:
         from rdkit import Chem as _Chem  # noqa: F401
 
         console.print("[green]OK[/green]")
     except ImportError:
-        console.print("[yellow]NOT INSTALLED[/yellow] (only needed for --smiles)")
+        console.print("[yellow]NOT INSTALLED[/yellow] (only needed for --smiles 3D fallback)")
 
-    # Test UniProt connectivity
-    console.print("[bold]Testing UniProt API...[/bold]", end=" ")
+    # Check rcsbsearchapi (required by protein module)
+    console.print("[bold]Checking rcsbsearchapi...[/bold]", end=" ")
     try:
-        import httpx as _httpx
+        import rcsbsearchapi as _rcsb  # noqa: F401
 
-        with _httpx.Client(timeout=10, follow_redirects=True) as client:
-            resp = client.get(f"{UNIPROT_BASE}/uniprotkb/search?query=insulin&size=1&format=json")
-            if resp.status_code == 200:
-                console.print(f"[green]OK[/green] (HTTP {resp.status_code})")
-            else:
-                console.print(f"[red]FAILED[/red] (HTTP {resp.status_code})")
-                all_ok = False
+        console.print("[green]OK[/green]")
+    except ImportError:
+        console.print("[red]MISSING[/red] -- install with: pip install rcsbsearchapi")
+        all_ok = False
     except Exception as exc:
-        console.print(f"[red]FAILED[/red] ({exc})")
+        console.print(f"[yellow]INSTALLED but broken[/yellow] ({type(exc).__name__}: {exc})")
         all_ok = False
 
-    # Test PubChem connectivity
-    console.print("[bold]Testing PubChem API...[/bold]", end=" ")
-    try:
-        import httpx as _httpx
-
-        with _httpx.Client(timeout=10, follow_redirects=True) as client:
-            resp = client.get(f"{PUBCHEM_BASE}/compound/name/aspirin/property/MolecularFormula/JSON")
-            if resp.status_code == 200:
-                console.print(f"[green]OK[/green] (HTTP {resp.status_code})")
-            else:
-                console.print(f"[red]FAILED[/red] (HTTP {resp.status_code})")
-                all_ok = False
-    except Exception as exc:
-        console.print(f"[red]FAILED[/red] ({exc})")
-        all_ok = False
-
-    # Test ChEMBL connectivity
+    # Test ChEMBL connectivity (only API still called directly)
     console.print("[bold]Testing ChEMBL API...[/bold]", end=" ")
     try:
         import httpx as _httpx

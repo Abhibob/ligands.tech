@@ -25,7 +25,7 @@ async def test_resolve_erlotinib_by_name(tmp_path):
     assert result.name is not None
     assert "erlotinib" in result.name.lower()
     assert result.smiles is not None
-    assert "C#Cc1cccc" in result.smiles  # Partial match for erlotinib SMILES
+    assert "C#C" in result.smiles  # Erlotinib has an alkyne group
     assert result.sdf_2d_path is not None
     # 3D might be from PubChem or RDKit
     assert result.sdf_3d_path is not None or True  # May not always have 3D

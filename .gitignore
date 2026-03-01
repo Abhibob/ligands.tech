@@ -21,3 +21,9 @@ Thumbs.db
 
 # Node
 node_modules/
+
+# Agent workspace (runtime artifacts)
+workspace/
+
+# Lock files
+uv.lock

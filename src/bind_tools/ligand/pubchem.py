@@ -45,7 +45,7 @@ async def get_cid_by_name(name: str) -> int | None:
 
 async def get_cid_by_smiles(smiles: str) -> int | None:
     """Get PubChem CID from SMILES string."""
-    # Use POST to avoid URL encoding issues with special characters
+    # Use POST to avoid URL-encoding issues with special characters (#, /, etc.)
     url = f"{PUBCHEM_BASE}/compound/smiles/cids/JSON"
 
     try:
@@ -112,7 +112,7 @@ async def fetch_compound_by_cid(cid: int) -> dict:
 
     return {
         "cid": cid,
-        # PubChem returns "SMILES" not "CanonicalSMILES" in response
+        # PubChem returns "SMILES" not "CanonicalSMILES" in some responses
         "canonical_smiles": prop.get("SMILES") or prop.get("CanonicalSMILES"),
         "isomeric_smiles": prop.get("ConnectivitySMILES") or prop.get("IsomericSMILES"),
         "molecular_formula": prop.get("MolecularFormula"),

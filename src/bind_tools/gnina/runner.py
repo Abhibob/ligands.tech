@@ -391,54 +391,97 @@ def run_gnina(
 def _parse_score_stdout(stdout: str, mode: str) -> list[GninaPose]:
     """Parse gnina --score_only stdout output.
 
-    gnina score_only prints lines like:
-      ## Name Affinity CNNscore CNNaffinity
-      ...data lines with numeric values...
+    gnina score_only prints labeled lines like:
+      Affinity: -7.12345 (kcal/mol)
+      CNNscore: 0.0317559317
+      CNNaffinity: 3.9758062363
+      Intramolecular energy: -0.51286
 
-    We skip all non-numeric lines and extract values robustly.
+    Multiple ligands produce repeated blocks of these lines.
+    We also handle the tabular format some gnina versions use:
+      ## Name Affinity CNNscore CNNaffinity
+      lig.sdf -7.1 0.03 3.97
     """
+    import re
+
     poses: list[GninaPose] = []
     lines = stdout.strip().split("\n")
 
-    # Common gnina info prefixes to skip
-    _SKIP_PREFIXES = (
-        "#", "Using", "Reading", "WARNING", "NOTE", "CNN",
-        "Output", "Refine", "Loading", "Setting", "Parse",
-        "Scoring", "Minimiz", "Search",
-    )
+    # Accumulate values for the labeled-line format.
+    energy: float = 0.0
+    cnn_score: float = 0.0
+    cnn_aff: float = 0.0
+    has_any = False
 
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        if any(line.startswith(p) for p in _SKIP_PREFIXES):
-            continue
 
-        # Try to parse numeric columns; gnina outputs vary but
-        # data lines always start with numeric or a name followed by numerics
-        parts = line.split()
-        # Find the first run of 3 consecutive floats in the parts
-        numeric_vals: list[float] = []
-        for part in parts:
-            try:
-                numeric_vals.append(float(part))
-            except ValueError:
-                numeric_vals = []  # reset on non-numeric
-
-            if len(numeric_vals) >= 3:
-                break
-
-        if len(numeric_vals) >= 3:
-            energy, cnn_score, cnn_aff = numeric_vals[0], numeric_vals[1], numeric_vals[2]
-            poses.append(
-                GninaPose(
+        # Labeled format: "Affinity: -7.12345 (kcal/mol)"
+        m = re.match(r"Affinity:\s*([-\d.eE+]+)", line)
+        if m:
+            # If we already accumulated a pose, flush it before starting next.
+            if has_any:
+                poses.append(GninaPose(
                     rank=len(poses) + 1,
                     energyKcalMol=round(energy, 3),
                     cnnPoseScore=round(cnn_score, 4),
                     cnnAffinity=round(cnn_aff, 4),
                     path="",
-                )
-            )
+                ))
+                cnn_score = 0.0
+                cnn_aff = 0.0
+            energy = float(m.group(1))
+            has_any = True
+            continue
+
+        m = re.match(r"CNNscore:\s*([-\d.eE+]+)", line)
+        if m:
+            cnn_score = float(m.group(1))
+            has_any = True
+            continue
+
+        m = re.match(r"CNNaffinity:\s*([-\d.eE+]+)", line)
+        if m:
+            cnn_aff = float(m.group(1))
+            has_any = True
+            continue
+
+        # Tabular format fallback: skip header/info lines, find numeric rows.
+        if line.startswith(("#", "Using", "Reading", "WARNING", "NOTE",
+                           "Output", "Refine", "Loading", "Setting", "Parse",
+                           "Scoring", "Minimiz", "Search", "Term", "Intra")):
+            continue
+
+        parts = line.split()
+        numeric_vals: list[float] = []
+        for part in parts:
+            try:
+                numeric_vals.append(float(part))
+            except ValueError:
+                numeric_vals = []
+            if len(numeric_vals) >= 3:
+                break
+
+        if len(numeric_vals) >= 3:
+            poses.append(GninaPose(
+                rank=len(poses) + 1,
+                energyKcalMol=round(numeric_vals[0], 3),
+                cnnPoseScore=round(numeric_vals[1], 4),
+                cnnAffinity=round(numeric_vals[2], 4),
+                path="",
+            ))
+
+    # Flush last accumulated labeled-format pose.
+    if has_any and (energy != 0.0 or cnn_score != 0.0 or cnn_aff != 0.0):
+        poses.append(GninaPose(
+            rank=len(poses) + 1,
+            energyKcalMol=round(energy, 3),
+            cnnPoseScore=round(cnn_score, 4),
+            cnnAffinity=round(cnn_aff, 4),
+            path="",
+        ))
 
     return poses
 

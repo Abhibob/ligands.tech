@@ -1,11 +1,13 @@
-"""Execution logic for bind-resolve: protein, ligand, and binder resolution
-via public bioinformatics APIs (UniProt, PDBe, AlphaFold, RCSB, PubChem, ChEMBL).
+"""Execution logic for bind-resolve: protein, ligand, and binder resolution.
 
-All HTTP calls use ``httpx.Client`` with a 30-second timeout.
+Protein and ligand resolution is delegated to the richer ``bind_tools.protein``
+and ``bind_tools.ligand`` modules.  Binder (ChEMBL) and RCSB structure search
+remain implemented here with direct HTTP calls.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -21,13 +23,8 @@ from bind_tools.common.runner import ensure_dir
 
 logger = logging.getLogger(__name__)
 
-# ── API base URLs ────────────────────────────────────────────────────────────
+# ── API base URLs (only those still used directly) ───────────────────────────
 
-UNIPROT_BASE = "https://rest.uniprot.org"
-PDBE_BASE = "https://www.ebi.ac.uk/pdbe"
-ALPHAFOLD_BASE = "https://alphafold.ebi.ac.uk"
-RCSB_BASE = "https://files.rcsb.org"
-PUBCHEM_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 CHEMBL_BASE = "https://www.ebi.ac.uk/chembl/api/data"
 CCD_BASE = "https://files.rcsb.org/ligands/download"
 
@@ -50,6 +47,26 @@ ORGANISM_MAP: dict[str, int] = {
     "xenopus": 8364,
     "c.elegans": 6239,
     "arabidopsis": 3702,
+}
+
+# Common name → scientific name for the protein module (expects scientific names).
+_ORGANISM_SCIENTIFIC: dict[str, str] = {
+    "human": "Homo sapiens",
+    "mouse": "Mus musculus",
+    "rat": "Rattus norvegicus",
+    "ecoli": "Escherichia coli",
+    "e.coli": "Escherichia coli",
+    "yeast": "Saccharomyces cerevisiae",
+    "zebrafish": "Danio rerio",
+    "drosophila": "Drosophila melanogaster",
+    "chicken": "Gallus gallus",
+    "pig": "Sus scrofa",
+    "dog": "Canis lupus familiaris",
+    "cow": "Bos taurus",
+    "rabbit": "Oryctolagus cuniculus",
+    "xenopus": "Xenopus tropicalis",
+    "c.elegans": "Caenorhabditis elegans",
+    "arabidopsis": "Arabidopsis thaliana",
 }
 
 # ── Shared HTTP client factory ───────────────────────────────────────────────
@@ -116,8 +133,16 @@ def _resolve_organism_id(organism: str | None, organism_id: int | None) -> int:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# resolve_protein
+# resolve_protein  (delegates to bind_tools.protein)
 # ══════════════════════════════════════════════════════════════════════════════
+
+
+def _scientific_organism(organism: str | None) -> str:
+    """Map a common organism name to the scientific name expected by the protein module."""
+    if organism is None:
+        return "Homo sapiens"
+    key = organism.lower().strip()
+    return _ORGANISM_SCIENTIFIC.get(key, organism)
 
 
 def resolve_protein(
@@ -129,134 +154,85 @@ def resolve_protein(
 ) -> dict[str, Any]:
     """Resolve a protein by gene name or UniProt accession.
 
-    Steps:
-      1. Search UniProt (unless *uniprot_id* is provided directly).
-      2. Fetch best experimental structures from PDBe.
-      3. Fetch AlphaFold prediction URL.
-      4. Optionally download the best PDB structure.
-
-    Returns a summary dict suitable for embedding in a result envelope.
+    Delegates to ``bind_tools.protein.resolve_protein`` for the heavy lifting
+    (UniProt search, PDB structure ranking, binding-site extraction, FASTA
+    generation).  Results are mapped back to the summary dict expected by the
+    resolve CLI.
     """
     if not name and not uniprot_id:
         raise InputMissingError(
             "Provide at least --name (gene name) or --uniprot (UniProt accession)."
         )
 
-    with _http_client() as client:
-        # ── Step 1: Resolve UniProt accession ────────────────────────────
-        accession: str
-        protein_name: str = ""
-        gene_name: str = name or ""
-        organism_label: str = organism or "human"
-
-        if uniprot_id:
-            accession = uniprot_id.strip()
-            # Fetch entry metadata
-            entry = _get_json(
-                client,
-                f"{UNIPROT_BASE}/uniprotkb/{accession}.json",
-                label="UniProt",
-            )
-            if entry:
-                protein_name = entry.get("proteinDescription", {}).get(
-                    "recommendedName", {}
-                ).get("fullName", {}).get("value", "")
-                genes = entry.get("genes", [])
-                if genes:
-                    gene_name = genes[0].get("geneName", {}).get("value", gene_name)
-        else:
-            tax_id = _resolve_organism_id(organism, organism_id)
-            query = f"(gene:{name})+AND+(organism_id:{tax_id})+AND+(reviewed:true)"
-            url = (
-                f"{UNIPROT_BASE}/uniprotkb/search"
-                f"?query={query}&format=json&size=5&fields=accession,gene_names,"
-                f"protein_name,organism_name,length,sequence"
-            )
-            data = _get_json(client, url, label="UniProt search")
-            results = (data or {}).get("results", [])
-            if not results:
-                raise UpstreamError(
-                    f"No reviewed UniProt entry found for gene='{name}', "
-                    f"organism_id={tax_id}."
-                )
-
-            top = results[0]
-            accession = top["primaryAccession"]
-            protein_name = top.get("proteinDescription", {}).get(
-                "recommendedName", {}
-            ).get("fullName", {}).get("value", "")
-            genes = top.get("genes", [])
-            if genes:
-                gene_name = genes[0].get("geneName", {}).get("value", gene_name)
-            organism_label = top.get("organism", {}).get("scientificName", organism_label)
-
-        # ── Step 2: Best experimental structures (PDBe) ──────────────────
-        best_structures: list[dict[str, Any]] = []
-        pdbe_data = _get_json(
-            client,
-            f"{PDBE_BASE}/graph-api/mappings/best_structures/{accession}",
-            label="PDBe best_structures",
+    try:
+        from bind_tools.protein import (
+            ProteinSearchInput,
+            resolve_protein as _resolve_protein_async,
         )
-        if pdbe_data and accession in pdbe_data:
-            for entry in pdbe_data[accession][:10]:
-                best_structures.append(
-                    {
-                        "pdb_id": entry.get("pdb_id", ""),
-                        "resolution": entry.get("resolution"),
-                        "experimental_method": entry.get("experimental_method", ""),
-                        "chain_id": entry.get("chain_id", ""),
-                        "coverage": entry.get("coverage", 0),
-                        "start": entry.get("start", 0),
-                        "end": entry.get("end", 0),
-                    }
-                )
+    except Exception as exc:
+        raise UpstreamError(
+            f"bind_tools.protein module failed to load: {exc}"
+        ) from exc
 
-        # ── Step 3: AlphaFold prediction ─────────────────────────────────
-        alphafold_url: str | None = None
-        af_data = _get_json(
-            client,
-            f"{ALPHAFOLD_BASE}/api/prediction/{accession}",
-            label="AlphaFold",
-        )
-        if af_data:
-            # The AF API returns a list; take the first entry
-            af_entries = af_data if isinstance(af_data, list) else [af_data]
-            if af_entries:
-                alphafold_url = af_entries[0].get("pdbUrl") or af_entries[0].get(
-                    "cifUrl"
-                )
+    query = uniprot_id.strip() if uniprot_id else (name or "")
+    scientific = _scientific_organism(organism)
 
-        # ── Step 4: Optional download ────────────────────────────────────
-        downloaded_path: str | None = None
-        if download_dir and best_structures:
-            dl_dir = ensure_dir(download_dir, label="download-dir", create=True)
-            pdb_id = best_structures[0]["pdb_id"]
-            dest = dl_dir / f"{pdb_id}.cif"
-            download_url = f"{RCSB_BASE}/download/{pdb_id}.cif"
-            try:
-                _download_file(client, download_url, dest, label="PDB structure")
-                downloaded_path = str(dest)
-            except UpstreamError as exc:
-                logger.warning("Download failed, trying .pdb: %s", exc)
-                dest_pdb = dl_dir / f"{pdb_id}.pdb"
-                download_url_pdb = f"{RCSB_BASE}/download/{pdb_id}.pdb"
-                _download_file(client, download_url_pdb, dest_pdb, label="PDB structure")
-                downloaded_path = str(dest_pdb)
+    inp = ProteinSearchInput(
+        query=query,
+        organism=scientific,
+        download_best=download_dir is not None,
+        workspace_dir=download_dir,
+    )
+
+    try:
+        resolved = asyncio.run(_resolve_protein_async(inp))
+    except ValueError as exc:
+        raise UpstreamError(str(exc)) from exc
+
+    # Map StructureHit list → legacy best_structures dicts
+    best_structures: list[dict[str, Any]] = []
+    for sh in resolved.structures:
+        best_structures.append({
+            "pdb_id": sh.pdb_id,
+            "resolution": sh.resolution,
+            "experimental_method": sh.method or "",
+            "chain_id": sh.chains[0] if sh.chains else "",
+            "has_ligand": sh.has_ligand,
+            "ligand_ids": sh.ligand_ids,
+        })
+
+    # Determine downloaded path from best structure
+    downloaded_path: str | None = None
+    if resolved.best_structure:
+        downloaded_path = resolved.best_structure.cif_path or resolved.best_structure.pdb_path
+
+    # Binding sites
+    binding_sites: list[dict[str, Any]] = []
+    for bs in resolved.binding_sites:
+        binding_sites.append({
+            "site_id": bs.site_id,
+            "residues": bs.residues,
+            "ligand_id": bs.ligand_id,
+            "ligand_name": bs.ligand_name,
+            "source": bs.source,
+        })
 
     return {
-        "uniprot_accession": accession,
-        "gene_name": gene_name,
-        "protein_name": protein_name,
-        "organism": organism_label,
+        "uniprot_accession": resolved.uniprot_id,
+        "gene_name": resolved.gene_name,
+        "protein_name": resolved.protein_name,
+        "organism": resolved.organism,
+        "sequence_length": resolved.sequence_length,
+        "fasta_path": resolved.fasta_path,
         "best_structures": best_structures,
-        "alphafold_url": alphafold_url,
+        "binding_sites": binding_sites,
         "downloaded_path": downloaded_path,
         "num_structures": len(best_structures),
     }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# resolve_ligand
+# resolve_ligand  (delegates to bind_tools.ligand, except CCD path)
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -269,144 +245,87 @@ def resolve_ligand(
 ) -> dict[str, Any]:
     """Resolve a ligand from a name, SMILES, CCD code, or PubChem CID.
 
-    Priority order:
-      1. *smiles* -- generate 3D SDF locally via RDKit.
-      2. *ccd* -- download ideal SDF from RCSB CCD.
-      3. *pubchem_cid* -- fetch from PubChem by CID.
-      4. *name* -- search PubChem by compound name.
-
-    Returns a summary dict.
+    The CCD path (RCSB Ligand Expo ideal SDF) is handled inline because the
+    ligand module only supports PubChem.  All other paths delegate to
+    ``bind_tools.ligand.resolve_ligand``.
     """
     if not any([name, smiles, ccd, pubchem_cid]):
         raise InputMissingError(
             "Provide at least one of --name, --smiles, --ccd, or --pubchem-cid."
         )
 
-    dl_dir: Path | None = None
-    if download_dir:
-        dl_dir = ensure_dir(download_dir, label="download-dir", create=True)
-
-    result: dict[str, Any] = {
-        "source": "",
-        "identifier": "",
-        "smiles": smiles or "",
-        "molecular_formula": "",
-        "molecular_weight": None,
-        "sdf_path": None,
-    }
-
-    # ── Path 1: SMILES via RDKit ─────────────────────────────────────────
-    if smiles:
-        result["source"] = "smiles"
-        result["identifier"] = smiles
-        if dl_dir:
-            sdf_path = dl_dir / "ligand_from_smiles.sdf"
-            _generate_sdf_from_smiles(smiles, sdf_path)
-            result["sdf_path"] = str(sdf_path)
+    # ── CCD path: kept inline (ligand module doesn't support CCD) ────────
+    if ccd:
+        ccd_upper = ccd.strip().upper()
+        result: dict[str, Any] = {
+            "source": "ccd",
+            "identifier": ccd_upper,
+            "smiles": "",
+            "molecular_formula": "",
+            "molecular_weight": None,
+            "sdf_path": None,
+        }
+        if download_dir:
+            dl_dir = ensure_dir(download_dir, label="download-dir", create=True)
+            sdf_url = f"{CCD_BASE}/{ccd_upper}_ideal.sdf"
+            dest = dl_dir / f"{ccd_upper}_ideal.sdf"
+            with _http_client() as client:
+                _download_file(client, sdf_url, dest, label="CCD SDF")
+            result["sdf_path"] = str(dest)
         return result
 
-    with _http_client() as client:
-        # ── Path 2: CCD (RCSB ligand) ───────────────────────────────────
-        if ccd:
-            ccd_upper = ccd.strip().upper()
-            result["source"] = "ccd"
-            result["identifier"] = ccd_upper
-            sdf_url = f"{CCD_BASE}/{ccd_upper}_ideal.sdf"
+    # ── All other paths: delegate to ligand module ───────────────────────
+    if smiles:
+        query = smiles
+    elif pubchem_cid:
+        query = f"CID:{pubchem_cid}"
+    elif name:
+        query = name
+    else:
+        raise InputMissingError("No ligand identifier provided.")
 
-            if dl_dir:
-                dest = dl_dir / f"{ccd_upper}_ideal.sdf"
-                _download_file(client, sdf_url, dest, label="CCD SDF")
-                result["sdf_path"] = str(dest)
-            return result
-
-        # ── Path 3: PubChem by CID ──────────────────────────────────────
-        if pubchem_cid:
-            result["source"] = "pubchem_cid"
-            result["identifier"] = str(pubchem_cid)
-            _fill_pubchem(client, result, f"compound/cid/{pubchem_cid}", dl_dir)
-            return result
-
-        # ── Path 4: PubChem by name ─────────────────────────────────────
-        if name:
-            result["source"] = "pubchem_name"
-            result["identifier"] = name
-            _fill_pubchem(client, result, f"compound/name/{name}", dl_dir)
-            return result
-
-    return result
-
-
-def _fill_pubchem(
-    client: httpx.Client,
-    result: dict[str, Any],
-    path_segment: str,
-    dl_dir: Path | None,
-) -> None:
-    """Fetch property info and 3D SDF from PubChem, mutating *result* in-place."""
-    # Properties
-    prop_url = (
-        f"{PUBCHEM_BASE}/{path_segment}"
-        "/property/IsomericSMILES,MolecularFormula,MolecularWeight/JSON"
-    )
-    prop_data = _get_json(client, prop_url, label="PubChem properties")
-    if prop_data:
-        props_list = (
-            prop_data.get("PropertyTable", {}).get("Properties", [])
-        )
-        if props_list:
-            p = props_list[0]
-            result["smiles"] = p.get("IsomericSMILES", result["smiles"])
-            result["molecular_formula"] = p.get("MolecularFormula", "")
-            result["molecular_weight"] = p.get("MolecularWeight")
-            result["pubchem_cid"] = p.get("CID")
-
-    # 3D SDF download
-    if dl_dir:
-        sdf_url = f"{PUBCHEM_BASE}/{path_segment}/record/SDF?record_type=3d"
-        identifier = result.get("identifier", "ligand")
-        safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(identifier))
-        dest = dl_dir / f"{safe_name}_pubchem.sdf"
-        try:
-            resp = client.get(sdf_url)
-            if resp.status_code == 200:
-                dest.write_bytes(resp.content)
-                result["sdf_path"] = str(dest)
-            else:
-                logger.warning(
-                    "PubChem 3D SDF not available (HTTP %d), skipping download.",
-                    resp.status_code,
-                )
-        except httpx.HTTPError as exc:
-            logger.warning("PubChem 3D SDF download failed: %s", exc)
-
-
-def _generate_sdf_from_smiles(smiles: str, dest: Path) -> None:
-    """Use RDKit to embed a 3D conformer and write an SDF file."""
     try:
-        from rdkit import Chem
-        from rdkit.Chem import AllChem
-    except ImportError:
-        raise InputMissingError(
-            "RDKit is required to generate 3D SDF from SMILES. "
-            "Install it with: pip install rdkit-pypi"
+        from bind_tools.ligand import (
+            LigandSearchInput,
+            resolve_ligand as _resolve_ligand_async,
         )
-
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        raise ValidationError(f"RDKit could not parse SMILES: {smiles}")
-
-    mol = Chem.AddHs(mol)
-    status = AllChem.EmbedMolecule(mol, AllChem.ETKDGv3())
-    if status != 0:
+    except Exception as exc:
         raise UpstreamError(
-            f"RDKit 3D embedding failed for SMILES: {smiles} (status={status})"
-        )
-    AllChem.MMFFOptimizeMolecule(mol)
+            f"bind_tools.ligand module failed to load: {exc}"
+        ) from exc
 
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    writer = Chem.SDWriter(str(dest))
-    writer.write(mol)
-    writer.close()
+    inp = LigandSearchInput(
+        query=query,
+        generate_3d=download_dir is not None,
+        workspace_dir=download_dir,
+    )
+
+    try:
+        resolved = asyncio.run(_resolve_ligand_async(inp))
+    except ValueError as exc:
+        raise UpstreamError(str(exc)) from exc
+
+    # Map ResolvedLigand → summary dict
+    props = resolved.properties
+    result = {
+        "source": "smiles" if smiles else ("pubchem_cid" if pubchem_cid else "pubchem_name"),
+        "identifier": smiles or str(pubchem_cid or "") or name or "",
+        "name": resolved.name or "",
+        "smiles": resolved.smiles or resolved.isomeric_smiles or "",
+        "iupac_name": resolved.iupac_name or "",
+        "synonyms": resolved.synonyms,
+        "pubchem_cid": resolved.pubchem_cid,
+        "inchi_key": resolved.inchi_key or "",
+        "molecular_formula": props.molecular_formula if props else "",
+        "molecular_weight": props.molecular_weight if props else None,
+        "logp": props.logp if props else None,
+        "tpsa": props.tpsa if props else None,
+        "h_bond_donors": props.h_bond_donors if props else None,
+        "h_bond_acceptors": props.h_bond_acceptors if props else None,
+        "rotatable_bonds": props.rotatable_bonds if props else None,
+        "sdf_path": resolved.sdf_3d_path or resolved.sdf_2d_path,
+    }
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
